@@ -50,4 +50,9 @@ This project supports two distinct LLM interaction modes plus a deterministic fa
 ## Output conventions
 - ANSI colors (TTY-aware): INFO blue, PLAN1/PLAN2 cyan, DRY RUN yellow, APPLY green, CAPTION magenta.
 - Names sanitized to ASCII `[A-Za-z0-9._-]`, max 256 chars, dedupe double extensions.
-See Python coding style in PYTHON_STYLE.md.
+See Python coding style in docs/PYTHON_STYLE.md.
+## Coding Style
+See Markdown style in docs/MARKDOWN_STYLE.md.
+When making edits, document them in docs/CHANGELOG.md.
+See repo style in docs/REPO_STYLE.md.
+Agents may run programs in the tests folder, including smoke tests and pyflakes/mypy runner scripts.

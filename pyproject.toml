@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macos-llm-file-cleanup"
-version = "0.1.0"
+version = "26.01"
 description = "Local-first macOS organizer that uses metadata-aware plugins and an optional local LLM."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [{ name = "macos-llm-file-cleanup" }]
 dependencies = []
 
 [project.optional-dependencies]
-pdf = ["PyPDF2>=3.0.0"]
+pdf = ["pypdf>=4.0.0"]
 docx = ["python-docx>=1.1.0"]
 odt = ["odfpy>=1.4.1"]
 dev = ["pytest>=7.0.0"]
