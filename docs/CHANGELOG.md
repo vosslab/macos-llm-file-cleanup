@@ -38,6 +38,12 @@
 - Drop textract as a required dependency; DOC/PPT extraction now relies on LibreOffice conversion when available.
 - Skip files with unsupported extensions before LLM processing to avoid guardrail errors.
 - Decouple keep-original decisions from content payloads and allow keep-original to run when rename hits guardrails.
+- Add `docs/TODO.md` and `docs/ROADMAP.md` to track backlog items and planned work.
+- Add LLM reliability tests for filename sanitization, placeholder reason normalization, and error surfacing.
+- Add tiny image fixtures under `tests/test_files` plus a generator script and safer image extraction tests.
+- Add clearer LibreOffice conversion diagnostics for DOC/PPT preview extraction.
+- Add a sample OCR image and a basic OCR test for it.
+- Update the test image generator to include a 128x32 SAMPLE OCR fixture.
 - Sanitize rename prompt content to strip non-printables, long tokens, and repeated lines.
 - Retry Apple rename prompts with a minimal title+excerpt prompt on guardrail errors before falling back.
 - Add ODG (OpenDocument Drawing) support in the vector image plugin.
@@ -46,6 +52,10 @@
 - Log Moondream2 caption start/finish with duration and truncate long caption output.
 - Show an explicit note when keep_original is true without a justification.
 - Print [LLM] notices for rename and keep-original prompts.
+- Refactor LLM stack into shared prompts/parsers with transport-based backends and strict XML parsing.
+- Add pytest coverage for content extraction on files in tests/test_files.
+- Expand LLM engine/parser tests for fallback ordering and keep-original boolean variants.
+- Tighten LLM engine error handling to distinguish transport failures from parse failures.
 - Render up to two PDF pages for captioning even when PDFs are longer, and refine PDF/ocr sample labels.
 - Add ODS preview extraction (sheet names + first rows) in the spreadsheet plugin.
 - Include sheet names plus first row/column preview for ODS and XLSX metadata.

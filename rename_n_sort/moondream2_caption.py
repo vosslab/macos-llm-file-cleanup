@@ -42,7 +42,7 @@ def _resize_image(image: Image.Image, max_dimension: int) -> Image.Image:
 
 def _ensure_pyvips_shim() -> None:
 	try:
-		import pyvips  # noqa: F401
+		__import__("pyvips")
 		return
 	except Exception:
 		pass

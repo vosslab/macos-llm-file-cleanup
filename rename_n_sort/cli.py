@@ -14,7 +14,9 @@ import sys
 
 # local repo modules
 from .config import AppConfig, parse_exts
-from .llm import AppleLLM, FallbackLLM, OllamaLLM, apple_models_available, choose_model
+from .llm_engine import LLMEngine
+from .llm_utils import apple_models_available, choose_model
+from .transports import AppleTransport, OllamaTransport
 from .organizer import Organizer
 from .scanner import iter_files
 
@@ -163,38 +165,34 @@ def build_config(args: argparse.Namespace) -> AppConfig:
 #============================================
 
 
-def build_llm(config: AppConfig):
+def build_llm(config: AppConfig) -> LLMEngine:
 	"""
-	Instantiate LLM client with model selection.
+	Instantiate LLM engine with model selection.
 
 	Args:
 		config: Application configuration.
 
 	Returns:
-		OllamaLLM or AppleLLM instance.
+		LLMEngine instance.
 	"""
 	model = choose_model(config.model_override)
-	system_prompt = ""
-	if config.context:
-		system_prompt = (
-			"Keep names and categories aligned to this user/folder context: "
-			+ config.context
-		)
 	base_url = "http://localhost:11434"
+	transports = []
 	if config.llm_backend == "ollama":
 		if not _ollama_available(base_url):
 			raise RuntimeError("Ollama backend selected but service is not reachable.")
-		return OllamaLLM(model=model, system_message=system_prompt, base_url=base_url)
+		transports = [OllamaTransport(model=model, base_url=base_url)]
+		return LLMEngine(transports=transports, context=config.context)
 	if not apple_models_available():
 		if _ollama_available(base_url):
 			logging.warning("Apple Foundation Models unavailable; using Ollama backup.")
-			return OllamaLLM(model=model, system_message=system_prompt, base_url=base_url)
+			transports = [OllamaTransport(model=model, base_url=base_url)]
+			return LLMEngine(transports=transports, context=config.context)
 		raise RuntimeError("No available LLM backend (Apple Foundation Models or Ollama).")
-	primary = AppleLLM(model=model, system_message=system_prompt)
+	transports.append(AppleTransport())
 	if _ollama_available(base_url):
-		fallback = OllamaLLM(model=model, system_message=system_prompt, base_url=base_url)
-		return FallbackLLM(primary=primary, fallback=fallback)
-	return primary
+		transports.append(OllamaTransport(model=model, base_url=base_url))
+	return LLMEngine(transports=transports, context=config.context)
 
 
 #============================================

@@ -57,6 +57,10 @@ class PresentationPlugin(FileMetadataPlugin):
 		return meta
 
 	#============================================
+	def _print_why(self, path: Path, message: str) -> None:
+		print(f"[WHY] {path.name}: {message}")
+
+	#============================================
 	def _read_preview(self, path: Path) -> str | None:
 		ext = path.suffix.lower().lstrip(".")
 		if ext == "pptx":
@@ -107,9 +111,11 @@ class PresentationPlugin(FileMetadataPlugin):
 
 	def _read_ppt_via_soffice(self, path: Path) -> str | None:
 		if not Presentation:
+			self._print_why(path, "python-pptx not installed; skipping PPT conversion")
 			return None
 		soffice = shutil.which("soffice")
 		if not soffice:
+			self._print_why(path, "LibreOffice not found; skipping PPT conversion")
 			return None
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			output_path = Path(tmp_dir) / f"{path.stem}.pptx"
@@ -129,8 +135,10 @@ class PresentationPlugin(FileMetadataPlugin):
 					stderr=subprocess.DEVNULL,
 					timeout=30,
 				)
-			except Exception:
+			except Exception as exc:
+				self._print_why(path, f"LibreOffice conversion failed ({exc.__class__.__name__})")
 				return None
 			if not output_path.exists():
+				self._print_why(path, "LibreOffice conversion produced no output")
 				return None
 			return self._read_pptx_preview(output_path)

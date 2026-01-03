@@ -52,6 +52,10 @@ class DocumentPlugin(FileMetadataPlugin):
 		return meta
 
 	#============================================
+	def _print_why(self, path: Path, message: str) -> None:
+		print(f"[WHY] {path.name}: {message}")
+
+	#============================================
 	def _read_preview(self, path: Path) -> str | None:
 		"""
 		Read a short preview for text-like documents.
@@ -72,9 +76,11 @@ class DocumentPlugin(FileMetadataPlugin):
 
 	def _read_doc_via_soffice(self, path: Path) -> str | None:
 		if not docx:
+			self._print_why(path, "python-docx not installed; skipping DOC conversion")
 			return None
 		soffice = shutil.which("soffice")
 		if not soffice:
+			self._print_why(path, "LibreOffice not found; skipping DOC conversion")
 			return None
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			output_path = Path(tmp_dir) / f"{path.stem}.docx"
@@ -94,9 +100,11 @@ class DocumentPlugin(FileMetadataPlugin):
 					stderr=subprocess.DEVNULL,
 					timeout=30,
 				)
-			except Exception:
+			except Exception as exc:
+				self._print_why(path, f"LibreOffice conversion failed ({exc.__class__.__name__})")
 				return None
 			if not output_path.exists():
+				self._print_why(path, "LibreOffice conversion produced no output")
 				return None
 			return self._extract_docx_summary(output_path)
 

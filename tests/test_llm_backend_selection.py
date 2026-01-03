@@ -5,7 +5,9 @@ Tests for CLI LLM backend selection.
 
 from rename_n_sort.cli import build_llm
 from rename_n_sort.config import AppConfig
-from rename_n_sort.llm import AppleLLM, FallbackLLM, OllamaChatLLM
+from rename_n_sort.llm_engine import LLMEngine
+from rename_n_sort.transports.apple import AppleTransport
+from rename_n_sort.transports.ollama import OllamaTransport
 
 
 def test_backend_macos_default(monkeypatch):
@@ -14,8 +16,10 @@ def test_backend_macos_default(monkeypatch):
 	import rename_n_sort.cli as cli
 	monkeypatch.setattr(cli, "apple_models_available", lambda: True)
 	monkeypatch.setattr(cli, "_ollama_available", lambda _url: False)
-	llm = build_llm(cfg)
-	assert isinstance(llm, AppleLLM)
+	engine = build_llm(cfg)
+	assert isinstance(engine, LLMEngine)
+	assert len(engine.transports) == 1
+	assert isinstance(engine.transports[0], AppleTransport)
 
 
 def test_backend_macos_with_fallback(monkeypatch):
@@ -24,8 +28,11 @@ def test_backend_macos_with_fallback(monkeypatch):
 	import rename_n_sort.cli as cli
 	monkeypatch.setattr(cli, "apple_models_available", lambda: True)
 	monkeypatch.setattr(cli, "_ollama_available", lambda _url: True)
-	llm = build_llm(cfg)
-	assert isinstance(llm, FallbackLLM)
+	engine = build_llm(cfg)
+	assert isinstance(engine, LLMEngine)
+	assert len(engine.transports) == 2
+	assert isinstance(engine.transports[0], AppleTransport)
+	assert isinstance(engine.transports[1], OllamaTransport)
 
 
 def test_backend_macos_falls_back_to_ollama(monkeypatch):
@@ -34,8 +41,10 @@ def test_backend_macos_falls_back_to_ollama(monkeypatch):
 	monkeypatch.setattr(cli, "_ollama_available", lambda _url: True)
 	cfg = AppConfig(roots=[])
 	cfg.llm_backend = "macos"
-	llm = build_llm(cfg)
-	assert isinstance(llm, OllamaChatLLM)
+	engine = build_llm(cfg)
+	assert isinstance(engine, LLMEngine)
+	assert len(engine.transports) == 1
+	assert isinstance(engine.transports[0], OllamaTransport)
 
 
 def test_backend_ollama_available_uses_ollama(monkeypatch):
@@ -45,8 +54,10 @@ def test_backend_ollama_available_uses_ollama(monkeypatch):
 	monkeypatch.setattr(cli, "_ollama_available", lambda _url: True)
 	cfg = AppConfig(roots=[])
 	cfg.llm_backend = "ollama"
-	llm = build_llm(cfg)
-	assert isinstance(llm, OllamaChatLLM)
+	engine = build_llm(cfg)
+	assert isinstance(engine, LLMEngine)
+	assert len(engine.transports) == 1
+	assert isinstance(engine.transports[0], OllamaTransport)
 
 
 def test_backend_ollama_unavailable_raises(monkeypatch):

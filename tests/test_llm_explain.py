@@ -1,53 +1,40 @@
 #!/usr/bin/env python3
 """
-Tests for LLM explain-mode parsing helpers.
+Tests for shared XML parsing helpers.
 """
 
-from rename_n_sort.llm import OllamaChatLLM, extract_xml_tag_content
+from rename_n_sort.llm_parsers import parse_keep_response, parse_rename_response, parse_sort_response
+from rename_n_sort.llm_utils import extract_xml_tag_content
 
 
-def test_parse_keep_response_explain():
-	llm = OllamaChatLLM(model="test")
-	keep, reason = llm._parse_keep_response_explain(
-		"Sure.\n<response>\n  <keep_original>false</keep_original>\n  <reason>looks like a UUID</reason>\n</response>\nThanks."
+def test_parse_keep_response():
+	result = parse_keep_response(
+		"<response><keep_original>false</keep_original>"
+		"<reason>flagged original_stem=\"abc123\"</reason></response>",
+		"abc123",
 	)
-	assert keep is False
-	assert "uuid" in reason.lower()
+	assert result.keep_original is False
+	assert "abc123" in result.reason
 
 
-def test_parse_rename_response_explain():
-	llm = OllamaChatLLM(model="test")
-	name, reason = llm._parse_rename_response_explain(
-		"<response><new_name>My_File.pdf</new_name><reason>title + date</reason></response>",
-		"old.pdf",
+def test_parse_rename_response():
+	result = parse_rename_response(
+		"<response><new_name>My_File.pdf</new_name><reason>title + date</reason></response>"
 	)
-	assert name == "My_File.pdf"
-	assert "title" in reason.lower()
+	assert result.new_name == "My_File.pdf"
+	assert "title" in result.reason.lower()
 
 
-def test_parse_sort_response_expected_indices():
-	llm = OllamaChatLLM(model="test")
-	mapping, reasons = llm._parse_sort_response_explain(
-		"OK\n<response>\n"
-		"  <file index=\"10\"><category>Document</category><reason>pdf</reason></file>\n"
-		"  <file index=\"11\"><category>Image</category></file>\n"
-		"</response>\n",
-		[10, 11, 12],
+def test_parse_sort_response_expected_paths():
+	result = parse_sort_response(
+		"<response>"
+		"<file path=\"/tmp/a.pdf\">Document</file>"
+		"<file path=\"/tmp/b.png\">Image</file>"
+		"</response>",
+		["/tmp/a.pdf", "/tmp/b.png"],
 	)
-	assert mapping[10] == "Document"
-	assert mapping[11] == "Image"
-	assert mapping[12] == "Other"
-	assert "pdf" in reasons[10].lower()
-
-
-def test_xml_parse_falls_back_to_plain_text():
-	llm = OllamaChatLLM(model="test")
-	name, reason = llm._parse_rename_response_explain(
-		"new_name: Plain.pdf\nreason: plain\n",
-		"old.pdf",
-	)
-	assert name == "Plain.pdf"
-	assert reason == "plain"
+	assert result.assignments["/tmp/a.pdf"] == "Document"
+	assert result.assignments["/tmp/b.png"] == "Image"
 
 
 def test_extracts_last_response_block():

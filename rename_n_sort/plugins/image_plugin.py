@@ -61,7 +61,6 @@ class ImagePlugin(FileMetadataPlugin):
 		caption = self._try_caption(path)
 		if caption:
 			meta.extra["caption"] = caption
-			self._print_meta("caption_sample", caption)
 		if caption or ocr_text:
 			meta.extra["caption_note"] = (
 				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."

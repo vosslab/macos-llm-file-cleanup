@@ -12,7 +12,9 @@ import os
 
 # local repo modules
 from .config import AppConfig
-from .llm import BaseClassLLM, normalize_reason, sanitize_filename, _is_guardrail_error
+from .llm_engine import LLMEngine
+from .llm_prompts import SortItem
+from .llm_utils import normalize_reason, sanitize_filename
 from .plugins import FileMetadata, PluginRegistry, build_registry
 from .renamer import apply_move
 from .scanner import iter_files
@@ -135,26 +137,19 @@ class Organizer:
 		print(f"{tag} {label}: {self._shorten(value)}")
 
 	#============================================
-	def _plan_one(self, path: Path, index: int) -> tuple[PlannedChange, dict]:
+	def _plan_one(self, path: Path) -> tuple[PlannedChange, SortItem]:
 		metadata = self._collect_metadata(path)
 		pdf_text = metadata.extra.get("pdf_text") if metadata else None
 		if pdf_text:
 			if self._normalize_text(metadata.summary) != self._normalize_text(pdf_text):
 				self._print_meta("raw_pdf_text_sample", pdf_text)
 		meta_payload = self._to_payload(metadata, path)
-		keep_payload = self._to_keep_payload(metadata, path)
-		try:
-			new_name, rename_reason = self.llm.rename_file_explain(meta_payload, path.name)
-		except Exception as exc:
-			if _is_guardrail_error(exc):
-				new_name = path.name
-				rename_reason = normalize_reason(f"rename failed: {exc.__class__.__name__}")
-			else:
-				raise
-		new_name = self._normalize_new_name(path.name, new_name)
-		keep_original, keep_reason = self.llm.should_keep_original_explain(
-			keep_payload, path.name, new_name
-		)
+		rename_result = self.llm.rename(path.name, meta_payload)
+		new_name = self._normalize_new_name(path.name, rename_result.new_name)
+		rename_reason = rename_result.reason
+		keep_result = self.llm.keep_original(Path(path.name).stem, new_name)
+		keep_original = keep_result.keep_original
+		keep_reason = keep_result.reason
 		keep_reason = normalize_reason(keep_reason)
 		orig_stem = Path(path.name).stem
 		if keep_original:
@@ -173,16 +168,16 @@ class Organizer:
 			rename_reason=rename_reason,
 			keep_reason=keep_reason,
 		)
-		summary = {
-			"index": index,
-			"name": new_name,
-			"ext": path.suffix.lstrip("."),
-			"description": meta_payload.get("summary") or meta_payload.get("description") or "",
-		}
+		summary = SortItem(
+			path=str(path.resolve()),
+			name=new_name,
+			ext=path.suffix.lstrip("."),
+			description=meta_payload.get("summary") or meta_payload.get("description") or "",
+		)
 		return (plan, summary)
 
 	#============================================
-	def __init__(self, config: AppConfig, llm: BaseClassLLM | None = None) -> None:
+	def __init__(self, config: AppConfig, llm: LLMEngine | None = None) -> None:
 		self.config = config
 		self.registry: PluginRegistry = build_registry()
 		self._supported_extensions = self._collect_supported_extensions()
@@ -199,7 +194,7 @@ class Organizer:
 			List of planned changes.
 		"""
 		plans: list[PlannedChange] = []
-		summaries: list[dict] = []
+		summaries: list[SortItem] = []
 		candidates = files if files is not None else iter_files(self.config)
 		first = True
 		for idx, path in enumerate(candidates):
@@ -212,8 +207,8 @@ class Organizer:
 				self._print_why("error", f"Unsupported extension: .{ext}")
 				self._print_why("action", "skipping file due to unsupported extension")
 				continue
-			plan, summary = self._plan_one(path, idx)
-			title = summary.get("description", "") or ""
+			plan, summary = self._plan_one(path)
+			title = summary.description or ""
 			self._print_meta("text sample", title)
 			self._print_why("rename_reason", plan.rename_reason)
 			keep_detail = str(plan.keep_original).lower()
@@ -260,12 +255,12 @@ class Organizer:
 				self._print_why("action", "skipping file due to unsupported extension")
 				continue
 			try:
-				plan, summary = self._plan_one(path, index=0)
+				plan, summary = self._plan_one(path)
 			except Exception as exc:
 				self._print_why("error", f"{exc.__class__.__name__}: {exc}")
 				self._print_why("action", "skipping file due to LLM error")
 				continue
-			desc = summary.get("description", "") or ""
+			desc = summary.description or ""
 			self._print_meta("text sample", desc)
 			self._print_why("rename_reason", plan.rename_reason)
 			keep_detail = str(plan.keep_original).lower()
@@ -280,9 +275,9 @@ class Organizer:
 				plan.new_name,
 				f"(plugin={plan.plugin})",
 			)
-			cats, reasons = self.llm.assign_categories_explain([summary])
-			category = cats.get(0, "Other")
-			plan.category_reason = reasons.get(0, "")
+			result = self.llm.sort([summary])
+			selection = result.assignments.get(summary.path, "Other")
+			category = selection.split("/")[0] if selection else "Other"
 			plan.category = category
 			plan.target = self._target_path(plan.source, plan.new_name, category)
 			self._print_pair(
@@ -312,7 +307,7 @@ class Organizer:
 		return plans
 
 	#============================================
-	def _assign_categories(self, plans: list[PlannedChange], summaries: list[dict]) -> None:
+	def _assign_categories(self, plans: list[PlannedChange], summaries: list[SortItem]) -> None:
 		"""
 		Assign categories in batches and update targets.
 		"""
@@ -321,15 +316,15 @@ class Organizer:
 		batch_size = 50
 		for start in range(0, len(summaries), batch_size):
 			batch = summaries[start : start + batch_size]
-			cats, reasons = self.llm.assign_categories_explain(batch)
-			for item in batch:
-				idx = item["index"]
-				category = cats.get(idx, "Other")
-				if idx < len(plans):
-					plans[idx].category = category
-					plans[idx].category_reason = reasons.get(idx, "")
-					plans[idx].target = self._target_path(
-						plans[idx].source, plans[idx].new_name, category
+			result = self.llm.sort(batch)
+			for offset, item in enumerate(batch):
+				category_text = result.assignments.get(item.path, "Other")
+				category = category_text.split("/")[0] if category_text else "Other"
+				plan_index = start + offset
+				if plan_index < len(plans):
+					plans[plan_index].category = category
+					plans[plan_index].target = self._target_path(
+						plans[plan_index].source, plans[plan_index].new_name, category
 					)
 
 	#============================================
@@ -418,16 +413,6 @@ class Organizer:
 		}
 		payload.update(meta.extra)
 		return payload
-
-	#============================================
-	def _to_keep_payload(self, meta: FileMetadata, path: Path) -> dict:
-		"""
-		Limit keep-original payload to non-content fields.
-		"""
-		return {
-			"extension": path.suffix.lstrip("."),
-			"plugin": meta.plugin_name,
-		}
 
 	#============================================
 	def _target_path(self, path: Path, suggested_name: str, category: str) -> Path:

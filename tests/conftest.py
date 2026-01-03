@@ -20,10 +20,10 @@ def _add_repo_root_to_path() -> None:
 
 _add_repo_root_to_path()
 
-from rename_n_sort.llm import BaseClassLLM  # noqa: E402
+from rename_n_sort.llm_parsers import KeepResult, RenameResult, SortResult  # noqa: E402
 
 
-class StubLLM(BaseClassLLM):
+class StubLLM:
 	"""
 	Test-only stub LLM for organizer/unit tests.
 	"""
@@ -31,27 +31,12 @@ class StubLLM(BaseClassLLM):
 	def __init__(self) -> None:
 		self.model = "stub"
 
-	def suggest_name_and_category(self, metadata: dict, current_name: str) -> tuple[str, str]:
-		return ("stub_name", "Other")
+	def rename(self, current_name: str, metadata: dict) -> RenameResult:
+		return RenameResult(new_name="stub_name", reason="stub reason", raw_text="")
 
-	def rename_file(self, metadata: dict, current_name: str) -> str:
-		return "stub_name"
+	def keep_original(self, original_stem: str, suggested_name: str) -> KeepResult:
+		return KeepResult(keep_original=False, reason="stub keep", raw_text="")
 
-	def rename_file_explain(self, metadata: dict, current_name: str) -> tuple[str, str]:
-		return ("stub_name", "stub reason")
-
-	def rename_with_keep(self, metadata: dict, current_name: str) -> tuple[str, bool]:
-		return ("stub_name", False)
-
-	def should_keep_original_explain(
-		self, metadata: dict, current_name: str, new_name: str
-	) -> tuple[bool, str]:
-		return (False, "stub keep")
-
-	def assign_categories(self, summaries: list[dict]) -> dict[int, str]:
-		return {0: "Document"}
-
-	def assign_categories_explain(
-		self, summaries: list[dict]
-	) -> tuple[dict[int, str], dict[int, str]]:
-		return ({0: "Document"}, {0: "stub category"})
+	def sort(self, files: list) -> SortResult:
+		assignments = {item.path: "Document" for item in files}
+		return SortResult(assignments=assignments, raw_text="")
