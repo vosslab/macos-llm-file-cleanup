@@ -73,21 +73,16 @@ python -m rename_n_sort --paths /path/to/folder --apply --model "llama3.2:3b-ins
 - `-d/--dry-run` dry run (default)
 - `-m/--max-files N` limit processed files
 - `--max-depth N` maximum directory depth to scan (default 1)
-- `-c/--config FILE` optional JSON or YAML overrides
 - `-e/--ext EXT` repeatable extension filter
 - `-t/--target PATH` target root (default `<search_path>/Organized`)
 - `-o/--model MODEL` override Ollama model
+- `-R/--randomize` randomize file processing order (default)
+- `-S/--sorted` process files in sorted order
 - `-v/--verbose` verbose logging
 - `-x/--context "text"` optional context string added to LLM prompts (example: `"Biology class"` or `"Client ACME"`)
 
-## Configuration file (JSON/YAML)
-Supported keys:
-- `target_root`: string path
-- `include_extensions`: list of extensions
-- `roots`: list of scan roots
-
 ## Naming and moves
-- Target path: `<target_root>/cleaned/<category>/<new_name><ext>`
+- Target path: `<target_root>/<category>/<new_name><ext>`
 - Collisions: deduped with numeric suffixes.
 - Hidden files skipped by default.
 - Dry run prints planned moves; apply performs renames/moves.
@@ -99,5 +94,5 @@ python -m pytest
 
 ## Notes and limitations
 - macOS-only; uses `mdls` when available for fast metadata.
-- Ollama must be running locally for chat mode; otherwise the Dummy heuristic is used.
+- Ollama must be running locally for chat mode.
 - Plugins aim for lightweight metadata (size, extension, optional title/preview); heavy parsing is out-of-scope for v1.

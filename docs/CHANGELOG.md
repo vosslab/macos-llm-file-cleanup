@@ -15,6 +15,19 @@
 - Add mutually-exclusive `--apply` and `--dry-run` flags (dry-run default) for safer CLI behavior.
 - Default target root now uses `<search_root>/Organized` to keep files on the same drive unless `--target` is set.
 - Clarify `--context` to indicate it is injected into LLM prompts with examples.
+- Remove JSON/YAML config file support in favor of explicit CLI arguments.
+- Switch XML parsing to a last-tag extraction strategy for chatty LLM outputs.
+- Include caption + OCR context with guidance notes in rename prompts.
+- Refine rename/keep prompts to emphasize human-readable filenames and reduce noisy tokens.
+- For PDFs with two pages or fewer, render pages to images and use OCR+captioning instead of plain text extraction.
+- Replace PDF rasterization via pyvips/libvips with pdf2image/poppler for more stable OCR rendering.
+- Exclude `OTHER_REPOS` from pyflakes scanning to keep linting focused on this codebase.
+- Remove the `cleaned/` path segment so targets are now `<target_root>/<category>/...`.
+- Add OCR/rendering status and sample text logging for images and short PDFs.
+- Avoid keeping numeric/generic original stems and normalize placeholder reasons.
+- Let the LLM decide keep-original without extra heuristics; suppress placeholder keep reasons.
+- Add mutually exclusive randomize/sorted CLI ordering with randomize as the default.
+- Adjust LLM prompts to request XML-only replies with minimal chatter.
 
 ## 2026-01-02
 - Bump version to `26.01` and add root `VERSION` file synced with `pyproject.toml`.

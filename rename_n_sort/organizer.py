@@ -12,7 +12,7 @@ import os
 
 # local repo modules
 from .config import AppConfig
-from .llm import BaseClassLLM, sanitize_filename
+from .llm import BaseClassLLM, normalize_reason, sanitize_filename
 from .plugins import FileMetadata, PluginRegistry, build_registry
 from .renamer import apply_move
 from .scanner import iter_files
@@ -130,8 +130,9 @@ class Organizer:
 		keep_original, keep_reason = self.llm.should_keep_original_explain(
 			meta_payload, path.name, new_name
 		)
+		keep_reason = normalize_reason(keep_reason)
+		orig_stem = Path(path.name).stem
 		if keep_original:
-			orig_stem = Path(path.name).stem
 			if orig_stem.lower() not in new_name.lower():
 				combined = f"{orig_stem}_{new_name}"
 				new_name = self._normalize_new_name(path.name, combined)
@@ -378,7 +379,7 @@ class Organizer:
 			new_filename = f"{clean_name}{ext}"
 		target_root = self._target_root_for_source(path)
 		if category:
-			target_root = target_root / "cleaned" / sanitize_filename(category)
+			target_root = target_root / sanitize_filename(category)
 		target_path = target_root / new_filename
 		return target_path
 

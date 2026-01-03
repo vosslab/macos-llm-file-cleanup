@@ -13,6 +13,7 @@ import time
 import urllib.request
 import platform
 from dataclasses import dataclass
+import logging
 
 #============================================
 
@@ -20,6 +21,20 @@ from dataclasses import dataclass
 MAX_FILENAME_CHARS = 100
 PROMPT_FILENAME_CHARS = 80
 MIN_MACOS_MAJOR = 26
+_PLACEHOLDER_REASONS = {
+	"short justification",
+	"short reason",
+	"optional",
+	"n/a",
+	"na",
+}
+
+_GUARDRAIL_ERRORS: tuple[type[BaseException], ...] = ()
+try:
+	from applefoundationmodels.exceptions import GuardrailViolationError
+	_GUARDRAIL_ERRORS = (GuardrailViolationError,)
+except Exception:
+	_GUARDRAIL_ERRORS = ()
 
 
 def sanitize_filename(name: str) -> str:
@@ -50,6 +65,38 @@ def sanitize_filename(name: str) -> str:
 	if len(cleaned) > MAX_FILENAME_CHARS:
 		cleaned = cleaned[:MAX_FILENAME_CHARS]
 	return cleaned or "file"
+
+
+#============================================
+
+def normalize_reason(reason: str | None) -> str:
+	"""
+	Normalize trivial placeholder reasons to empty string.
+	"""
+	if not reason:
+		return ""
+	cleaned = " ".join(str(reason).split())
+	lower = cleaned.lower().strip()
+	plain = re.sub(r"[^a-z0-9 ]+", "", lower).strip()
+	if lower in _PLACEHOLDER_REASONS or plain in _PLACEHOLDER_REASONS:
+		return ""
+	if "short justification" in lower or "short reason" in lower:
+		return ""
+	if "justification" in lower and len(lower.split()) <= 3:
+		return ""
+	return cleaned
+
+
+#============================================
+
+def _is_guardrail_error(exc: Exception) -> bool:
+	if _GUARDRAIL_ERRORS and isinstance(exc, _GUARDRAIL_ERRORS):
+		return True
+	name = exc.__class__.__name__.lower()
+	if "guardrail" in name:
+		return True
+	msg = str(exc).lower()
+	return "guardrail" in msg and "unsafe" in msg
 
 
 #============================================
@@ -99,29 +146,27 @@ def pick_category(extension: str) -> str:
 #============================================
 
 
-def _extract_response_block(response_text: str) -> str | None:
-	match = re.search(
-		r"<response\b[^>]*>.*?</response>",
-		response_text,
-		flags=re.IGNORECASE | re.DOTALL,
-	)
-	if not match:
-		return None
-	return match.group(0)
-
-
-def _tag_text(xml_block: str, tag: str) -> str:
-	match = re.search(
-		rf"<{tag}\b[^>]*>(.*?)</{tag}>",
-		xml_block,
-		flags=re.IGNORECASE | re.DOTALL,
-	)
-	if not match:
+def extract_xml_tag_content(raw_text: str, tag: str) -> str:
+	"""
+	Extract the last occurrence of a given XML-like tag.
+	"""
+	if not raw_text:
 		return ""
-	text = match.group(1).strip()
-	if text.startswith("<![CDATA[") and text.endswith("]]>"):
-		text = text[len("<![CDATA[") : -len("]]>")].strip()
-	return text.strip()
+	lower = raw_text.lower()
+	open_token = f"<{tag}"
+	close_token = f"</{tag}"
+	start_idx = lower.rfind(open_token)
+	if start_idx == -1:
+		return ""
+	gt_idx = raw_text.find(">", start_idx)
+	if gt_idx == -1:
+		return ""
+	close_idx = lower.find(close_token, gt_idx + 1)
+	if close_idx == -1:
+		content = raw_text[gt_idx + 1 :]
+		return content.strip()
+	content = raw_text[gt_idx + 1 : close_idx]
+	return content.strip()
 
 
 def _parse_macos_version() -> tuple[int, int, int]:
@@ -317,6 +362,75 @@ class BaseClassLLM:
 
 #============================================
 
+class FallbackLLM(BaseClassLLM):
+	"""
+	Primary LLM with a fallback for guardrail violations.
+	"""
+
+	def __init__(self, primary: BaseClassLLM, fallback: BaseClassLLM) -> None:
+		self.primary = primary
+		self.fallback = fallback
+
+	def _with_fallback(self, primary_fn, fallback_fn):
+		try:
+			return primary_fn()
+		except Exception as exc:
+			if _is_guardrail_error(exc):
+				logging.warning("Apple guardrail triggered; falling back to Ollama.")
+				return fallback_fn()
+			raise
+
+	def suggest_name_and_category(
+		self, metadata: dict, current_name: str
+	) -> tuple[str, str]:
+		return self._with_fallback(
+			lambda: self.primary.suggest_name_and_category(metadata, current_name),
+			lambda: self.fallback.suggest_name_and_category(metadata, current_name),
+		)
+
+	def rename_file(self, metadata: dict, current_name: str) -> str:
+		return self._with_fallback(
+			lambda: self.primary.rename_file(metadata, current_name),
+			lambda: self.fallback.rename_file(metadata, current_name),
+		)
+
+	def rename_file_explain(self, metadata: dict, current_name: str) -> tuple[str, str]:
+		return self._with_fallback(
+			lambda: self.primary.rename_file_explain(metadata, current_name),
+			lambda: self.fallback.rename_file_explain(metadata, current_name),
+		)
+
+	def rename_with_keep(self, metadata: dict, current_name: str) -> tuple[str, bool]:
+		return self._with_fallback(
+			lambda: self.primary.rename_with_keep(metadata, current_name),
+			lambda: self.fallback.rename_with_keep(metadata, current_name),
+		)
+
+	def should_keep_original_explain(
+		self, metadata: dict, current_name: str, new_name: str
+	) -> tuple[bool, str]:
+		return self._with_fallback(
+			lambda: self.primary.should_keep_original_explain(metadata, current_name, new_name),
+			lambda: self.fallback.should_keep_original_explain(metadata, current_name, new_name),
+		)
+
+	def assign_categories(self, summaries: list[dict]) -> dict[int, str]:
+		return self._with_fallback(
+			lambda: self.primary.assign_categories(summaries),
+			lambda: self.fallback.assign_categories(summaries),
+		)
+
+	def assign_categories_explain(
+		self, summaries: list[dict]
+	) -> tuple[dict[int, str], dict[int, str]]:
+		return self._with_fallback(
+			lambda: self.primary.assign_categories_explain(summaries),
+			lambda: self.fallback.assign_categories_explain(summaries),
+		)
+
+
+#============================================
+
 
 class AppleLLM(BaseClassLLM):
 	"""
@@ -426,23 +540,35 @@ class AppleLLM(BaseClassLLM):
 		if self.system_message:
 			lines.append(f"Context: {self.system_message}")
 		lines.append(
-			f"Rename mode: create a concise macOS-safe filename up to {PROMPT_FILENAME_CHARS} characters."
+			f"Rename mode: create a concise, human-readable filename up to {PROMPT_FILENAME_CHARS} characters."
 		)
-		lines.append("Use 3-8 meaningful tokens (names, IDs, dates, set numbers).")
+		lines.append("Goal: the filename should make immediate sense to a person skimming a folder.")
+		lines.append("Focus on purpose or type (form, invoice, receipt, contract, screenshot topic).")
+		lines.append("Summarize instead of listing every visible word.")
+		lines.append("Use 2-6 meaningful tokens; keep names short (1-2 names max).")
+		lines.append("Avoid phone numbers, emails, or long numeric strings.")
+		lines.append("Include a date only if clearly present and important (format YYYYMMDD).")
+		lines.append("Include an ID only if it is a short labeled identifier.")
+		lines.append("Avoid repeating tokens or echoing noisy original stems.")
 		lines.append("Separate tokens with underscores or hyphens.")
-		lines.append("Summarize captions/descriptions into keywords; do NOT copy long sentences.")
-		lines.append("Avoid filler adjectives like vibrant/beautiful; avoid repeating the original hashy name.")
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Avoid filler adjectives like vibrant/beautiful.")
+		lines.append("When in doubt, choose the shorter, more general filename.")
+		lines.append("When in doubt, choose the shorter, more general filename.")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <new_name>NAME_WITH_EXTENSION</new_name>")
-		lines.append("  <reason>short justification</reason>")
+		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
 		lines.append(f"current_name: {current_name}")
 		lines.append(f"title: {metadata.get('title')}")
 		lines.append(f"keywords: {metadata.get('keywords')}")
 		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
+		if metadata.get("caption"):
+			lines.append(f"caption: {metadata.get('caption')}")
 		if metadata.get("ocr_text"):
 			lines.append(f"ocr_text: {metadata.get('ocr_text')}")
+		if metadata.get("caption_note"):
+			lines.append(f"caption_note: {metadata.get('caption_note')}")
 		lines.append(f"extension: {metadata.get('extension')}")
 		return "\n".join(lines)
 
@@ -451,11 +577,14 @@ class AppleLLM(BaseClassLLM):
 		lines: list[str] = []
 		if self.system_message:
 			lines.append(f"Context: {self.system_message}")
-		lines.append("Decide if the original filename is meaningful and should be kept.")
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Decide if the original filename stem is meaningful and should be kept.")
+		lines.append("Keep only if it is short, human-readable, and adds unique context not already in the new name.")
+		lines.append("Discard if it contains long numbers, phone/email, hashes, or noisy scan tokens.")
+		lines.append("Never keep numeric-only stems or generic download/camera labels.")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <keep_original>true</keep_original>")
-		lines.append("  <reason>short justification</reason>")
+		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
 		lines.append(
 			"Keep if the original stem has a person name, username, project name, set number, or unique ID; "
@@ -483,7 +612,7 @@ class AppleLLM(BaseClassLLM):
 			lines.append(
 				f"file_{item['index']}: name={item['name']}, ext={item.get('ext')}, desc={item.get('description')}"
 			)
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <file index=\"N\">")
 		lines.append("    <category>Document</category>")
@@ -496,20 +625,20 @@ class AppleLLM(BaseClassLLM):
 	def _parse_rename_response_explain(
 		self, response_text: str, current_name: str
 	) -> tuple[str, str]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
-			new_name = _tag_text(xml_block, "new_name") or current_name
-			reason = _tag_text(xml_block, "reason")
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
+			new_name = extract_xml_tag_content(response_body, "new_name") or current_name
+			reason = normalize_reason(extract_xml_tag_content(response_body, "reason"))
 			return (sanitize_filename(new_name), reason)
 		return (sanitize_filename(current_name), "")
 
 	#============================================
 	def _parse_keep_response_explain(self, response_text: str) -> tuple[bool, str]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
-			keep_text = _tag_text(xml_block, "keep_original").strip().lower()
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
+			keep_text = extract_xml_tag_content(response_body, "keep_original").strip().lower()
 			keep = keep_text.startswith("t") or keep_text == "1" or keep_text == "yes"
-			reason = _tag_text(xml_block, "reason")
+			reason = normalize_reason(extract_xml_tag_content(response_body, "reason"))
 			return (keep, reason)
 		return (True, "")
 
@@ -517,13 +646,13 @@ class AppleLLM(BaseClassLLM):
 	def _parse_sort_response_explain(
 		self, response_text: str, expected_indices: list[int]
 	) -> tuple[dict[int, str], dict[int, str]]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
 			mapping: dict[int, str] = {}
 			reasons: dict[int, str] = {}
 			for match in re.finditer(
 				r"<file\b[^>]*\bindex\s*=\s*[\"'](\d+)[\"'][^>]*>(.*?)</file>",
-				xml_block,
+				response_body,
 				flags=re.IGNORECASE | re.DOTALL,
 			):
 				try:
@@ -531,8 +660,8 @@ class AppleLLM(BaseClassLLM):
 				except ValueError:
 					continue
 				body = match.group(2)
-				category_text = _tag_text(body, "category")
-				reason_text = _tag_text(body, "reason")
+				category_text = extract_xml_tag_content(body, "category")
+				reason_text = normalize_reason(extract_xml_tag_content(body, "reason"))
 				mapping[idx] = self._normalize_category(category_text)
 				if reason_text:
 					reasons[idx] = reason_text
@@ -751,23 +880,33 @@ class OllamaChatLLM(BaseClassLLM):
 	def _build_rename_prompt(self, metadata: dict, current_name: str) -> str:
 		lines: list[str] = []
 		lines.append(
-			f"Rename mode: create a concise macOS-safe filename up to {PROMPT_FILENAME_CHARS} characters."
+			f"Rename mode: create a concise, human-readable filename up to {PROMPT_FILENAME_CHARS} characters."
 		)
-		lines.append("Use 3-8 meaningful tokens (names, IDs, dates, set numbers).")
-		lines.append("Separate tokens with underscores or hyphens (e.g., Group_Of_8_Promo_Boxes).")
-		lines.append("Summarize captions/descriptions into keywords; do NOT copy long sentences.")
-		lines.append("Avoid filler adjectives like vibrant/beautiful; avoid repeating the original hashy name.")
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Goal: the filename should make immediate sense to a person skimming a folder.")
+		lines.append("Focus on purpose or type (form, invoice, receipt, contract, screenshot topic).")
+		lines.append("Summarize instead of listing every visible word.")
+		lines.append("Use 2-6 meaningful tokens; keep names short (1-2 names max).")
+		lines.append("Avoid phone numbers, emails, or long numeric strings.")
+		lines.append("Include a date only if clearly present and important (format YYYYMMDD).")
+		lines.append("Include an ID only if it is a short labeled identifier.")
+		lines.append("Avoid repeating tokens or echoing noisy original stems.")
+		lines.append("Separate tokens with underscores or hyphens.")
+		lines.append("Avoid filler adjectives like vibrant/beautiful.")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <new_name>NAME_WITH_EXTENSION</new_name>")
-		lines.append("  <reason>short justification</reason>")
+		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
 		lines.append(f"current_name: {current_name}")
 		lines.append(f"title: {metadata.get('title')}")
 		lines.append(f"keywords: {metadata.get('keywords')}")
 		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
+		if metadata.get("caption"):
+			lines.append(f"caption: {metadata.get('caption')}")
 		if metadata.get("ocr_text"):
 			lines.append(f"ocr_text: {metadata.get('ocr_text')}")
+		if metadata.get("caption_note"):
+			lines.append(f"caption_note: {metadata.get('caption_note')}")
 		lines.append(f"extension: {metadata.get('extension')}")
 		return "\n".join(lines)
 
@@ -820,28 +959,31 @@ class OllamaChatLLM(BaseClassLLM):
 	def _parse_rename_response_explain(
 		self, response_text: str, current_name: str
 	) -> tuple[str, str]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
-			new_name = _tag_text(xml_block, "new_name") or current_name
-			reason = _tag_text(xml_block, "reason")
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
+			new_name = extract_xml_tag_content(response_body, "new_name") or current_name
+			reason = normalize_reason(extract_xml_tag_content(response_body, "reason"))
 			return (sanitize_filename(new_name), reason)
 		new_name = self._parse_rename_response(response_text, current_name)
 		reason = ""
 		for line in response_text.splitlines():
 			trimmed = line.strip()
 			if trimmed.lower().startswith("reason:"):
-				reason = trimmed.split(":", 1)[1].strip()
+				reason = normalize_reason(trimmed.split(":", 1)[1].strip())
 				break
 		return (new_name, reason)
 
 	#============================================
 	def _build_keep_prompt(self, metadata: dict, current_name: str, new_name: str) -> str:
 		lines: list[str] = []
-		lines.append("Decide if the original filename is meaningful and should be kept.")
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Decide if the original filename stem is meaningful and should be kept.")
+		lines.append("Keep only if it is short, human-readable, and adds unique context not already in the new name.")
+		lines.append("Discard if it contains long numbers, phone/email, hashes, or noisy scan tokens.")
+		lines.append("Never keep numeric-only stems or generic download/camera labels.")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <keep_original>true</keep_original>")
-		lines.append("  <reason>short justification</reason>")
+		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
 		lines.append("Keep if the original stem has a person name, username, project name, set number, or unique ID; discard if random hash/uuid or generic camera name.")
 		lines.append(f"current_name: {current_name}")
@@ -864,18 +1006,18 @@ class OllamaChatLLM(BaseClassLLM):
 
 	#============================================
 	def _parse_keep_response_explain(self, response_text: str) -> tuple[bool, str]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
-			keep_text = _tag_text(xml_block, "keep_original").strip().lower()
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
+			keep_text = extract_xml_tag_content(response_body, "keep_original").strip().lower()
 			keep = keep_text.startswith("t") or keep_text == "1" or keep_text == "yes"
-			reason = _tag_text(xml_block, "reason")
+			reason = normalize_reason(extract_xml_tag_content(response_body, "reason"))
 			return (keep, reason)
 		keep = self._parse_keep_response(response_text)
 		reason = ""
 		for line in response_text.splitlines():
 			trimmed = line.strip()
 			if trimmed.lower().startswith("reason:"):
-				reason = trimmed.split(":", 1)[1].strip()
+				reason = normalize_reason(trimmed.split(":", 1)[1].strip())
 				break
 		return (keep, reason)
 
@@ -891,7 +1033,7 @@ class OllamaChatLLM(BaseClassLLM):
 			lines.append(
 				f"file_{item['index']}: name={item['name']}, ext={item.get('ext')}, desc={item.get('description')}"
 			)
-		lines.append("Respond with a single XML block and nothing else:")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <file index=\"N\">")
 		lines.append("    <category>Document</category>")
@@ -911,13 +1053,13 @@ class OllamaChatLLM(BaseClassLLM):
 	def _parse_sort_response_explain(
 		self, response_text: str, expected_indices: list[int]
 	) -> tuple[dict[int, str], dict[int, str]]:
-		xml_block = _extract_response_block(response_text)
-		if xml_block:
+		response_body = extract_xml_tag_content(response_text, "response")
+		if response_body:
 			mapping: dict[int, str] = {}
 			reasons: dict[int, str] = {}
 			for match in re.finditer(
 				r"<file\b[^>]*\bindex\s*=\s*[\"'](\d+)[\"'][^>]*>(.*?)</file>",
-				xml_block,
+				response_body,
 				flags=re.IGNORECASE | re.DOTALL,
 			):
 				try:
@@ -925,8 +1067,8 @@ class OllamaChatLLM(BaseClassLLM):
 				except ValueError:
 					continue
 				body = match.group(2)
-				category_text = _tag_text(body, "category")
-				reason_text = _tag_text(body, "reason")
+				category_text = extract_xml_tag_content(body, "category")
+				reason_text = normalize_reason(extract_xml_tag_content(body, "reason"))
 				mapping[idx] = self._normalize_category(category_text)
 				if reason_text:
 					reasons[idx] = reason_text

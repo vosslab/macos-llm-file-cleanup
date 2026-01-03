@@ -3,7 +3,7 @@
 Tests for LLM explain-mode parsing helpers.
 """
 
-from rename_n_sort.llm import OllamaChatLLM
+from rename_n_sort.llm import OllamaChatLLM, extract_xml_tag_content
 
 
 def test_parse_keep_response_explain():
@@ -48,3 +48,9 @@ def test_xml_parse_falls_back_to_plain_text():
 	)
 	assert name == "Plain.pdf"
 	assert reason == "plain"
+
+
+def test_extracts_last_response_block():
+	raw = "<response>first</response> chatter <response>second</response>"
+	result = extract_xml_tag_content(raw, "response")
+	assert result == "second"

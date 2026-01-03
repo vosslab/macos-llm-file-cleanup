@@ -4,6 +4,7 @@ from __future__ import annotations
 # Standard Library
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import sys
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
@@ -49,13 +50,47 @@ class ImagePlugin(FileMetadataPlugin):
 		if title:
 			meta.title = title
 		ocr_text = self._extract_ocr_text(path)
+		self._print_why(
+			"ocr_status",
+			f"completed ({len(ocr_text) if ocr_text else 0} chars)",
+		)
 		if ocr_text:
 			meta.extra["ocr_text"] = ocr_text
+			self._print_why("ocr_sample", ocr_text)
 		caption = self._try_caption(path)
+		if caption:
+			meta.extra["caption"] = caption
+			self._print_why("caption_sample", caption)
+		if caption or ocr_text:
+			meta.extra["caption_note"] = (
+				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."
+			)
 		meta.summary = self._combine_summary(caption, ocr_text, path)
 		if caption:
 			print(f"\033[35m[CAPTION]\033[0m {path.name}: {caption}")
 		return meta
+
+	#============================================
+	def _color(self, text: str, code: str) -> str:
+		if sys.stdout.isatty():
+			return f"\033[{code}m{text}\033[0m"
+		return text
+
+	#============================================
+	def _shorten(self, text: str, limit: int = 160) -> str:
+		if not text:
+			return ""
+		cleaned = " ".join(str(text).split())
+		if len(cleaned) <= limit:
+			return cleaned
+		return cleaned[: limit - 3] + "..."
+
+	#============================================
+	def _print_why(self, label: str, value: str | None) -> None:
+		if not value:
+			return
+		tag = self._color("[WHY]", "35")
+		print(f"{tag} {label}: {self._shorten(value)}")
 
 	#============================================
 	def _combine_summary(self, caption: str | None, ocr_text: str | None, path: Path) -> str:

@@ -4,13 +4,6 @@ from __future__ import annotations
 # Standard Library
 from dataclasses import dataclass, field
 from pathlib import Path
-import json
-
-# PIP3 modules
-try:
-	import yaml
-except Exception:
-	yaml = None
 
 #============================================
 
@@ -37,18 +30,17 @@ class AppConfig:
 		exclude_hidden: Skip dotfiles when True.
 		llm_backend: LLM backend selector ("macos" or "ollama").
 		model_override: Optional Ollama model name.
-		config_path: Optional user config path.
 	"""
 	roots: list[Path] = field(default_factory=_default_roots)
 	target_root: Path | None = None
 	dry_run: bool = True
 	max_files: int | None = 150
 	max_depth: int = 1
+	randomize: bool = True
 	include_extensions: set[str] | None = None
 	exclude_hidden: bool = True
 	llm_backend: str = "macos"
 	model_override: str | None = None
-	config_path: Path | None = None
 	verbose: bool = False
 	context: str | None = None
 
@@ -100,25 +92,3 @@ def parse_exts(exts: list[str] | None) -> set[str] | None:
 
 
 #============================================
-
-
-def load_user_config(config_path: Path | None) -> dict:
-	"""
-	Load user configuration from yaml or json.
-
-	Args:
-		config_path: Path to config file.
-
-	Returns:
-		Dictionary of loaded values or empty dict.
-	"""
-	if not config_path:
-		return {}
-	if not config_path.exists():
-		return {}
-	if config_path.suffix.lower() in {".yml", ".yaml"} and yaml:
-		with config_path.open("r", encoding="utf-8") as handle:
-			loaded = yaml.safe_load(handle)
-			return loaded or {}
-	with config_path.open("r", encoding="utf-8") as handle:
-		return json.load(handle)

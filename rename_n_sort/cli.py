@@ -8,11 +8,12 @@ import argparse
 import logging
 from pathlib import Path
 import urllib.request
+import random
 from collections import Counter
 import sys
 
 # local repo modules
-from .config import AppConfig, load_user_config, parse_exts
+from .config import AppConfig, parse_exts
 from .llm import AppleLLM, OllamaLLM, apple_models_available, choose_model
 from .organizer import Organizer
 from .scanner import iter_files
@@ -65,12 +66,6 @@ def parse_args() -> argparse.Namespace:
 		help="Maximum directory depth to scan (default 1).",
 	)
 	parser.add_argument(
-		"-c",
-		"--config",
-		dest="config_path",
-		help="Optional JSON or YAML config file.",
-	)
-	parser.add_argument(
 		"-v",
 		"--verbose",
 		dest="verbose",
@@ -96,6 +91,21 @@ def parse_args() -> argparse.Namespace:
 		dest="model",
 		help="Override Ollama model name.",
 	)
+	order_group = parser.add_mutually_exclusive_group()
+	order_group.add_argument(
+		"-R",
+		"--randomize",
+		dest="randomize",
+		action="store_true",
+		help="Randomize file processing order (default).",
+	)
+	order_group.add_argument(
+		"-S",
+		"--sorted",
+		dest="sorted",
+		action="store_true",
+		help="Process files in sorted order.",
+	)
 	parser.add_argument(
 		"--llm-backend",
 		dest="llm_backend",
@@ -109,7 +119,7 @@ def parse_args() -> argparse.Namespace:
 		dest="context",
 		help="Optional context string added to LLM prompts to keep naming on-theme (e.g., 'Biology class', 'Client ACME').",
 	)
-	parser.set_defaults(apply=False, dry_run=True)
+	parser.set_defaults(apply=False, dry_run=True, randomize=True, sorted=False)
 	return parser.parse_args()
 
 
@@ -128,6 +138,10 @@ def build_config(args: argparse.Namespace) -> AppConfig:
 		config.max_files = args.max_files
 	if args.max_depth is not None:
 		config.max_depth = args.max_depth
+	if args.sorted:
+		config.randomize = False
+	elif args.randomize:
+		config.randomize = True
 	exts = parse_exts(args.extensions) if args.extensions else None
 	if exts:
 		config.include_extensions = exts
@@ -136,19 +150,6 @@ def build_config(args: argparse.Namespace) -> AppConfig:
 		config.dry_run = False
 	elif args.dry_run:
 		config.dry_run = True
-	if args.config_path:
-		config.config_path = Path(args.config_path)
-		user_cfg = load_user_config(config.config_path)
-		if user_cfg.get("target_root"):
-			config.target_root = Path(user_cfg["target_root"]).expanduser()
-		if user_cfg.get("include_extensions"):
-			config.include_extensions = parse_exts(user_cfg["include_extensions"])
-		if user_cfg.get("context"):
-			config.context = str(user_cfg.get("context"))
-		if user_cfg.get("max_depth") is not None:
-			config.max_depth = int(user_cfg.get("max_depth"))
-		if user_cfg.get("llm_backend"):
-			config.llm_backend = str(user_cfg.get("llm_backend"))
 	if args.model:
 		config.model_override = args.model
 	if args.llm_backend:
@@ -240,6 +241,10 @@ def main() -> None:
 		if summary:
 			print(f"{_color('[SCAN]', '34')} Top extensions: {summary}")
 	limited_files = files
+	if config.randomize:
+		random.shuffle(limited_files)
+	else:
+		limited_files = sorted(limited_files)
 	if config.max_files:
 		limited_files = limited_files[: config.max_files]
 	organizer.process_one_by_one(limited_files)

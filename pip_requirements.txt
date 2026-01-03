@@ -2,13 +2,13 @@ accelerate
 apple-foundation-models
 einops
 odfpy
+pdf2image
 pillow
 pillow-heif
 pypdf
 pytesseract
 pytest
 python-docx
-pyyaml
 torch
 torchvision
 transformers

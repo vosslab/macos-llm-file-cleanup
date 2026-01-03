@@ -2,15 +2,16 @@
 from __future__ import annotations
 # Standard Library
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import sys
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
 from .mdls_utils import mdls_fields
+from .image_plugin import ImagePlugin
 
-try:
-	from pypdf import PdfReader
-except Exception:
-	PdfReader = None
+from pypdf import PdfReader
+from pdf2image import convert_from_path
 
 #============================================
 
@@ -80,8 +81,6 @@ class PDFPlugin(FileMetadataPlugin):
 			path: File path.
 			meta: Metadata object to populate.
 		"""
-		if not PdfReader:
-			return
 		try:
 			with path.open("rb") as handle:
 				reader = PdfReader(handle)
@@ -93,7 +92,81 @@ class PDFPlugin(FileMetadataPlugin):
 						text_bits.append(extracted.strip())
 				if text_bits:
 					joined = " ".join(text_bits)
+					meta.extra["pdf_text"] = joined[:2000]
+					self._print_why("pdf_text_sample", joined)
+				page_count = len(pages)
+				meta.extra["page_count"] = page_count
+				if page_count <= 2:
+					self._summarize_with_images(path, page_count, meta)
+				elif text_bits:
 					meta.summary = joined[:1500]
-				meta.extra["page_count"] = len(pages)
 		except Exception:
 			return
+
+	#============================================
+	def _summarize_with_images(self, path: Path, page_count: int, meta: FileMetadata) -> None:
+		"""
+		Render PDF pages to images and run OCR/captioning.
+		"""
+		self._print_why("pdf_render", f"rendering {page_count} page(s) for OCR/captioning")
+		image_plugin = ImagePlugin()
+		captions: list[str] = []
+		ocr_bits: list[str] = []
+		with TemporaryDirectory() as tmp_dir:
+			tmp_path = Path(tmp_dir)
+			images = convert_from_path(
+				str(path),
+				first_page=1,
+				last_page=page_count,
+				dpi=200,
+			)
+			for page_idx, image in enumerate(images, start=1):
+				out_path = tmp_path / f"{path.stem}_page{page_idx}.png"
+				image.save(out_path)
+				ocr_text = image_plugin._extract_ocr_text(out_path)
+				if ocr_text:
+					ocr_bits.append(f"Page {page_idx}: {ocr_text}")
+				caption = image_plugin._try_caption(out_path)
+				if caption:
+					captions.append(f"Page {page_idx}: {caption}")
+		caption_text = " | ".join(captions).strip()
+		ocr_text = " | ".join(ocr_bits).strip()
+		if caption_text:
+			meta.extra["caption"] = caption_text
+			self._print_why("caption_sample", caption_text)
+		if ocr_text:
+			meta.extra["ocr_text"] = ocr_text
+			self._print_why("ocr_sample", ocr_text)
+		if caption_text or ocr_text:
+			meta.extra["caption_note"] = (
+				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."
+			)
+		parts: list[str] = []
+		if caption_text:
+			parts.append(caption_text)
+		if ocr_text:
+			parts.append(f"OCR: {ocr_text}")
+		if parts:
+			meta.summary = " | ".join(parts)[:1500]
+
+	#============================================
+	def _color(self, text: str, code: str) -> str:
+		if sys.stdout.isatty():
+			return f"\033[{code}m{text}\033[0m"
+		return text
+
+	#============================================
+	def _shorten(self, text: str, limit: int = 160) -> str:
+		if not text:
+			return ""
+		cleaned = " ".join(str(text).split())
+		if len(cleaned) <= limit:
+			return cleaned
+		return cleaned[: limit - 3] + "..."
+
+	#============================================
+	def _print_why(self, label: str, value: str | None) -> None:
+		if not value:
+			return
+		tag = self._color("[WHY]", "35")
+		print(f"{tag} {label}: {self._shorten(value)}")
