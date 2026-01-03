@@ -50,17 +50,17 @@ class ImagePlugin(FileMetadataPlugin):
 		if title:
 			meta.title = title
 		ocr_text = self._extract_ocr_text(path)
-		self._print_why(
+		self._print_meta(
 			"ocr_status",
 			f"completed ({len(ocr_text) if ocr_text else 0} chars)",
 		)
 		if ocr_text:
 			meta.extra["ocr_text"] = ocr_text
-			self._print_why("ocr_sample", ocr_text)
+			self._print_meta("ocr_sample", ocr_text)
 		caption = self._try_caption(path)
 		if caption:
 			meta.extra["caption"] = caption
-			self._print_why("caption_sample", caption)
+			self._print_meta("caption_sample", caption)
 		if caption or ocr_text:
 			meta.extra["caption_note"] = (
 				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."
@@ -86,10 +86,10 @@ class ImagePlugin(FileMetadataPlugin):
 		return cleaned[: limit - 3] + "..."
 
 	#============================================
-	def _print_why(self, label: str, value: str | None) -> None:
+	def _print_meta(self, label: str, value: str | None) -> None:
 		if not value:
 			return
-		tag = self._color("[WHY]", "35")
+		tag = self._color("[META]", "33")
 		print(f"{tag} {label}: {self._shorten(value)}")
 
 	#============================================

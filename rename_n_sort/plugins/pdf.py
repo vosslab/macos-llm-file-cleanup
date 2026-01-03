@@ -93,7 +93,6 @@ class PDFPlugin(FileMetadataPlugin):
 				if text_bits:
 					joined = " ".join(text_bits)
 					meta.extra["pdf_text"] = joined[:2000]
-					self._print_why("pdf_text_sample", joined)
 				page_count = len(pages)
 				meta.extra["page_count"] = page_count
 				if page_count <= 2:
@@ -108,7 +107,7 @@ class PDFPlugin(FileMetadataPlugin):
 		"""
 		Render PDF pages to images and run OCR/captioning.
 		"""
-		self._print_why("pdf_render", f"rendering {page_count} page(s) for OCR/captioning")
+		self._print_meta("pdf_render", f"rendering {page_count} page(s) for OCR/captioning")
 		image_plugin = ImagePlugin()
 		captions: list[str] = []
 		ocr_bits: list[str] = []
@@ -133,10 +132,10 @@ class PDFPlugin(FileMetadataPlugin):
 		ocr_text = " | ".join(ocr_bits).strip()
 		if caption_text:
 			meta.extra["caption"] = caption_text
-			self._print_why("caption_sample", caption_text)
+			self._print_meta("caption_sample", caption_text)
 		if ocr_text:
 			meta.extra["ocr_text"] = ocr_text
-			self._print_why("ocr_sample", ocr_text)
+			self._print_meta("ocr_sample", ocr_text)
 		if caption_text or ocr_text:
 			meta.extra["caption_note"] = (
 				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."
@@ -165,8 +164,8 @@ class PDFPlugin(FileMetadataPlugin):
 		return cleaned[: limit - 3] + "..."
 
 	#============================================
-	def _print_why(self, label: str, value: str | None) -> None:
+	def _print_meta(self, label: str, value: str | None) -> None:
 		if not value:
 			return
-		tag = self._color("[WHY]", "35")
+		tag = self._color("[META]", "33")
 		print(f"{tag} {label}: {self._shorten(value)}")

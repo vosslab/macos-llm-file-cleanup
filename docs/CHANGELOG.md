@@ -27,6 +27,13 @@
 - Avoid keeping numeric/generic original stems and normalize placeholder reasons.
 - Let the LLM decide keep-original without extra heuristics; suppress placeholder keep reasons.
 - Add a fallback LLM wrapper to use Ollama when Apple guardrails block content; skip files on LLM failures.
+- Print PDF text samples under a [META] prefix and suppress duplicate desc output.
+- Tighten keep-original prompts to reference the original stem explicitly and avoid metadata-based guesses.
+- Rewrite keep-original prompt as a mechanical rule ladder with stem-quoted reasons.
+- Refine keep-original ladder to favor real words and make machine-token tests explicit.
+- Compute keep-original feature flags deterministically and pass them into the prompt for LLM decisions.
+- Drop requirement that keep-original reasons quote the stem; require citing a feature flag.
+- Show document summary text as [META] text sample instead of [WHY] desc.
 - Add mutually exclusive randomize/sorted CLI ordering with randomize as the default.
 - Adjust LLM prompts to request XML-only replies with minimal chatter.
 

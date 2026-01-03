@@ -13,6 +13,7 @@ import time
 import urllib.request
 import platform
 from dataclasses import dataclass
+from pathlib import Path
 import logging
 
 #============================================
@@ -28,6 +29,17 @@ _PLACEHOLDER_REASONS = {
 	"n/a",
 	"na",
 }
+
+_UUID_RE = re.compile(
+	r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
+_HEX_BLOB_RE = re.compile(r"\b[0-9a-fA-F]{8,}\b")
+_LONG_DIGIT_RUN_RE = re.compile(r"\d{8,}")
+_TOKEN_SPLIT_RE = re.compile(r"[-_.\s]+")
+_GENERIC_LABEL_RE = re.compile(
+	r"^(img|dsc|scan|screenshot|document|download|file|image|photo|picture)[-_ .]*\d+$",
+	re.IGNORECASE,
+)
 
 _GUARDRAIL_ERRORS: tuple[type[BaseException], ...] = ()
 try:
@@ -85,6 +97,44 @@ def normalize_reason(reason: str | None) -> str:
 	if "justification" in lower and len(lower.split()) <= 3:
 		return ""
 	return cleaned
+
+
+#============================================
+
+def compute_stem_features(original_stem: str, suggested_name: str) -> dict[str, object]:
+	"""
+	Compute deterministic features for keep-original decisions.
+	"""
+	stem = original_stem.strip()
+	alnum = re.sub(r"[^A-Za-z0-9]", "", stem)
+	alnum_length = len(alnum)
+	digits = sum(ch.isdigit() for ch in alnum)
+	letters = sum(ch.isalpha() for ch in alnum)
+	digit_ratio = digits / max(1, alnum_length)
+	tokens = [t for t in _TOKEN_SPLIT_RE.split(stem) if t]
+	alpha_token_count = sum(1 for t in tokens if any(ch.isalpha() for ch in t))
+	token_count = len(tokens)
+	has_letter = letters > 0
+	is_numeric_only = bool(stem) and stem.isdigit()
+	long_digit_run = bool(_LONG_DIGIT_RUN_RE.search(stem))
+	uuid_like = bool(_UUID_RE.match(stem))
+	hex_blob = bool(_HEX_BLOB_RE.search(stem))
+	generic_label = bool(_GENERIC_LABEL_RE.match(stem))
+	stem_in_suggested = stem.lower() in suggested_name.lower() if stem and suggested_name else False
+	return {
+		"has_letter": has_letter,
+		"alpha_token_count": alpha_token_count,
+		"token_count": token_count,
+		"is_numeric_only": is_numeric_only,
+		"long_digit_run": long_digit_run,
+		"digit_ratio": round(digit_ratio, 3),
+		"uuid_like": uuid_like,
+		"hex_blob": hex_blob,
+		"generic_label": generic_label,
+		"length": len(stem),
+		"alnum_length": alnum_length,
+		"stem_in_suggested": stem_in_suggested,
+	}
 
 
 #============================================
@@ -577,25 +627,38 @@ class AppleLLM(BaseClassLLM):
 		lines: list[str] = []
 		if self.system_message:
 			lines.append(f"Context: {self.system_message}")
-		lines.append("Decide if the original filename stem is meaningful and should be kept.")
-		lines.append("Keep only if it is short, human-readable, and adds unique context not already in the new name.")
-		lines.append("Discard if it contains long numbers, phone/email, hashes, or noisy scan tokens.")
-		lines.append("Never keep numeric-only stems or generic download/camera labels.")
+		lines.append("You are a strict classifier for whether to keep an original filename stem.")
+		lines.append("Use only original_stem and the computed feature flags below. Do not re-derive features.")
+		lines.append("Apply the rules in order and stop at the first match.")
+		lines.append("Rule 1: If is_numeric_only=true or original_stem is empty -> keep_original=false.")
+		lines.append(
+			"Rule 2: If generic_label=true and alpha_token_count <= 1 -> keep_original=false."
+		)
+		lines.append(
+			"Rule 3: If alpha_token_count >= 2 and generic_label=false -> keep_original=true."
+		)
+		lines.append(
+			"Rule 4: If uuid_like=true OR hex_blob=true OR long_digit_run=true -> keep_original=false."
+		)
+		lines.append(
+			"Rule 5: If digit_ratio > 0.6 AND alnum_length >= 10 -> keep_original=false."
+		)
+		lines.append(
+			"Rule 6: Otherwise keep_original=true if has_letter=true AND "
+			"(length <= 48 OR token_count <= 8) AND stem_in_suggested=false. Else false."
+		)
 		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <keep_original>true</keep_original>")
-		lines.append("  <reason>short reason (5-12 words)</reason>")
+		lines.append("  <reason>One sentence. Refer to one feature flag.</reason>")
 		lines.append("</response>")
-		lines.append(
-			"Keep if the original stem has a person name, username, project name, set number, or unique ID; "
-			"discard if random hash/uuid or generic camera name."
-		)
-		lines.append(f"current_name: {current_name}")
+		original_stem = Path(current_name).stem
+		features = compute_stem_features(original_stem, new_name)
+		lines.append(f"original_stem: {original_stem}")
 		lines.append(f"suggested_name: {new_name}")
-		lines.append(f"title: {metadata.get('title')}")
-		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
-		if metadata.get("ocr_text"):
-			lines.append(f"ocr_text: {metadata.get('ocr_text')}")
+		lines.append("features:")
+		for key, value in features.items():
+			lines.append(f"- {key}: {value}")
 		return "\n".join(lines)
 
 	#============================================
@@ -976,20 +1039,38 @@ class OllamaChatLLM(BaseClassLLM):
 	#============================================
 	def _build_keep_prompt(self, metadata: dict, current_name: str, new_name: str) -> str:
 		lines: list[str] = []
-		lines.append("Decide if the original filename stem is meaningful and should be kept.")
-		lines.append("Keep only if it is short, human-readable, and adds unique context not already in the new name.")
-		lines.append("Discard if it contains long numbers, phone/email, hashes, or noisy scan tokens.")
-		lines.append("Never keep numeric-only stems or generic download/camera labels.")
+		lines.append("You are a strict classifier for whether to keep an original filename stem.")
+		lines.append("Use only original_stem and the computed feature flags below. Do not re-derive features.")
+		lines.append("Apply the rules in order and stop at the first match.")
+		lines.append("Rule 1: If is_numeric_only=true or original_stem is empty -> keep_original=false.")
+		lines.append(
+			"Rule 2: If generic_label=true and alpha_token_count <= 1 -> keep_original=false."
+		)
+		lines.append(
+			"Rule 3: If alpha_token_count >= 2 and generic_label=false -> keep_original=true."
+		)
+		lines.append(
+			"Rule 4: If uuid_like=true OR hex_blob=true OR long_digit_run=true -> keep_original=false."
+		)
+		lines.append(
+			"Rule 5: If digit_ratio > 0.6 AND alnum_length >= 10 -> keep_original=false."
+		)
+		lines.append(
+			"Rule 6: Otherwise keep_original=true if has_letter=true AND "
+			"(length <= 48 OR token_count <= 8) AND stem_in_suggested=false. Else false."
+		)
 		lines.append("Return XML only with minimal chatter. Use exactly:")
 		lines.append("<response>")
 		lines.append("  <keep_original>true</keep_original>")
-		lines.append("  <reason>short reason (5-12 words)</reason>")
+		lines.append("  <reason>One sentence. Refer to one feature flag.</reason>")
 		lines.append("</response>")
-		lines.append("Keep if the original stem has a person name, username, project name, set number, or unique ID; discard if random hash/uuid or generic camera name.")
-		lines.append(f"current_name: {current_name}")
+		original_stem = Path(current_name).stem
+		features = compute_stem_features(original_stem, new_name)
+		lines.append(f"original_stem: {original_stem}")
 		lines.append(f"suggested_name: {new_name}")
-		lines.append(f"title: {metadata.get('title')}")
-		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
+		lines.append("features:")
+		for key, value in features.items():
+			lines.append(f"- {key}: {value}")
 		return "\n".join(lines)
 
 	#============================================

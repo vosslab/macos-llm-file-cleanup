@@ -122,8 +122,25 @@ class Organizer:
 		return cleaned[: limit - 3] + "..."
 
 	#============================================
+	def _normalize_text(self, text: str) -> str:
+		if not text:
+			return ""
+		return " ".join(str(text).split()).strip().lower()
+
+	#============================================
+	def _print_meta(self, label: str, value: str) -> None:
+		if not value:
+			return
+		tag = self._color("[META]", "33")
+		print(f"{tag} {label}: {self._shorten(value)}")
+
+	#============================================
 	def _plan_one(self, path: Path, index: int) -> tuple[PlannedChange, dict]:
 		metadata = self._collect_metadata(path)
+		pdf_text = metadata.extra.get("pdf_text") if metadata else None
+		if pdf_text:
+			if self._normalize_text(metadata.summary) != self._normalize_text(pdf_text):
+				self._print_meta("pdf_text_sample", pdf_text)
 		meta_payload = self._to_payload(metadata, path)
 		new_name, rename_reason = self.llm.rename_file_explain(meta_payload, path.name)
 		new_name = self._normalize_new_name(path.name, new_name)
@@ -183,7 +200,7 @@ class Organizer:
 			print(f"{self._color('[FILE]', '34')} {self._display_path(path)}")
 			plan, summary = self._plan_one(path, idx)
 			title = summary.get("description", "") or ""
-			self._print_why("desc", title)
+			self._print_meta("text sample", title)
 			self._print_why("rename_reason", plan.rename_reason)
 			keep_detail = str(plan.keep_original).lower()
 			if plan.keep_reason:
@@ -228,7 +245,7 @@ class Organizer:
 				self._print_why("action", "skipping file due to LLM error")
 				continue
 			desc = summary.get("description", "") or ""
-			self._print_why("desc", desc)
+			self._print_meta("text sample", desc)
 			self._print_why("rename_reason", plan.rename_reason)
 			keep_detail = str(plan.keep_original).lower()
 			if plan.keep_reason:
