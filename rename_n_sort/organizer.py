@@ -39,6 +39,7 @@ class PlannedChange:
 	keep_original: bool = True
 	rename_reason: str = ""
 	keep_reason: str = ""
+	keep_raw: str = ""
 	category_reason: str = ""
 
 
@@ -124,6 +125,26 @@ class Organizer:
 		return cleaned[: limit - 3] + "..."
 
 	#============================================
+	def _log_keep_original_raw(
+		self,
+		path: Path,
+		raw_text: str,
+		keep_original: bool,
+		reason: str,
+	) -> None:
+		if raw_text is None:
+			return
+		try:
+			with open("KEEP_ORIGINAL.log", "a", encoding="utf-8") as handle:
+				handle.write("=" * 80 + "\n")
+				handle.write(f"FILE: {self._display_path(path)}\n")
+				handle.write(f"keep_original={str(keep_original).lower()}\n")
+				handle.write(f"reason={reason}\n")
+				handle.write(raw_text.strip() + "\n")
+		except Exception:
+			return
+
+	#============================================
 	def _normalize_text(self, text: str) -> str:
 		if not text:
 			return ""
@@ -150,6 +171,7 @@ class Organizer:
 		keep_result = self.llm.keep_original(Path(path.name).stem, new_name)
 		keep_original = keep_result.keep_original
 		keep_reason = keep_result.reason
+		keep_raw = keep_result.raw_text
 		keep_reason = normalize_reason(keep_reason)
 		orig_stem = Path(path.name).stem
 		if keep_original:
@@ -167,7 +189,9 @@ class Organizer:
 			keep_original=keep_original,
 			rename_reason=rename_reason,
 			keep_reason=keep_reason,
+			keep_raw=keep_raw,
 		)
+		self._log_keep_original_raw(path, keep_raw, keep_original, keep_reason)
 		summary = SortItem(
 			path=str(path.resolve()),
 			name=new_name,

@@ -44,11 +44,6 @@ class AppleTransport:
 		self._require_apple_intelligence()
 		from applefoundationmodels import Session
 
-		with Session(
-			instructions=(
-				"You generate concise, structured answers for file renaming. "
-				"Return only the XML requested by the prompt."
-			)
-		) as session:
+		with Session() as session:
 			response = session.generate(prompt, max_tokens=max_tokens, temperature=0.2)
 		return response.text.strip()

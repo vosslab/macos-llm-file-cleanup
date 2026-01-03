@@ -12,6 +12,7 @@ def test_format_fix_prompt_includes_schema_and_original():
 	schema = "<response><new_name>X</new_name></response>"
 	prompt = build_format_fix_prompt(original, schema)
 	assert "previous reply did not match" in prompt.lower()
+	assert "tags below" in prompt.lower()
 	assert schema in prompt
 	assert original in prompt
 

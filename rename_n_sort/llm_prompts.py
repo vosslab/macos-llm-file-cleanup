@@ -49,22 +49,14 @@ class SortRequest:
 
 
 RENAME_SCHEMA_XML = (
-	"<response>\n"
-	"  <new_name>NAME_WITH_EXTENSION</new_name>\n"
-	"  <reason>short reason (5-12 words)</reason>\n"
-	"</response>"
+	"<new_name>NAME_WITH_EXTENSION</new_name>\n"
+	"<reason>short reason (5-12 words)</reason>"
 )
 KEEP_SCHEMA_XML = (
-	"<response>\n"
-	"  <keep_original>true|false</keep_original>\n"
-	"  <reason>original_stem=\"...\" feature_flag=... short reason</reason>\n"
-	"</response>"
+	"<keep_original>true|false</keep_original>\n"
+	"<reason>original_stem=\"...\" feature_flag=... short reason</reason>"
 )
-SORT_SCHEMA_XML = (
-	"<response>\n"
-	"  <file path=\"/path/to/file.ext\">Category</file>\n"
-	"</response>"
-)
+SORT_SCHEMA_XML = "<file path=\"/path/to/file.ext\">Category</file>"
 
 
 def build_rename_prompt(req: RenameRequest) -> str:
@@ -84,7 +76,8 @@ def build_rename_prompt(req: RenameRequest) -> str:
 	lines.append("Avoid repeating tokens or echoing noisy original stems.")
 	lines.append("Separate tokens with underscores or hyphens.")
 	lines.append("Avoid filler adjectives like vibrant/beautiful.")
-	lines.append("Return XML only. Do not include code fences.")
+	lines.append("Return only the tags shown below. Do not include code fences.")
+	lines.append("Do not wrap tags in any outer container.")
 	lines.append(RENAME_SCHEMA_XML)
 	title = _sanitize_prompt_text(req.metadata.get("title"), max_chars=200)
 	keywords = _sanitize_prompt_list(req.metadata.get("keywords"))
@@ -127,7 +120,8 @@ def build_rename_prompt_minimal(req: RenameRequest) -> str:
 	lines.append("Use 2-6 meaningful tokens; keep names short (1-2 names max).")
 	lines.append("Avoid phone numbers, emails, or long numeric strings.")
 	lines.append("Include a date only if clearly present and important (format YYYYMMDD).")
-	lines.append("Return XML only. Do not include code fences.")
+	lines.append("Return only the tags shown below. Do not include code fences.")
+	lines.append("Do not wrap tags in any outer container.")
 	lines.append(RENAME_SCHEMA_XML)
 	title = _sanitize_prompt_text(req.metadata.get("title"), max_chars=200)
 	excerpt = _prompt_excerpt(req.metadata)
@@ -165,9 +159,9 @@ def build_keep_prompt(req: KeepRequest) -> str:
 		f"Reason must include original_stem=\"{req.original_stem}\" exactly once."
 	)
 	lines.append("Do not repeat the schema text verbatim; populate real values.")
-	lines.append("Return a single <response> block only (no nesting).")
 	lines.append("Reason must not mention rules or instructions.")
-	lines.append("Return XML only. Do not include code fences.")
+	lines.append("Return only the tags shown below. Do not include code fences.")
+	lines.append("Do not wrap tags in any outer container.")
 	lines.append(KEEP_SCHEMA_XML)
 	lines.append(f"original_stem: {req.original_stem}")
 	lines.append(f"suggested_name: {req.suggested_name}")
@@ -190,15 +184,16 @@ def build_sort_prompt(req: SortRequest) -> str:
 		lines.append(
 			f"path={item.path} | name={item.name} | ext={item.ext} | desc={item.description}"
 		)
-	lines.append("Return XML only. Do not include code fences.")
+	lines.append("Return only the tags shown below. Do not include code fences.")
+	lines.append("Do not wrap tags in any outer container.")
 	lines.append(SORT_SCHEMA_XML)
 	return "\n".join(lines)
 
 
 def build_format_fix_prompt(original_prompt: str, schema_xml: str) -> str:
 	lines = [
-		"Your previous reply did not match the required XML.",
-		"Output only the XML schema below with no extra text.",
+		"Your previous reply did not match the required tags.",
+		"Output only the tags below with no extra text.",
 		schema_xml,
 		"",
 		original_prompt,

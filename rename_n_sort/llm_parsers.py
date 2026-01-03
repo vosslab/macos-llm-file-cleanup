@@ -69,15 +69,34 @@ def _coerce_response_body(text: str) -> str:
 		response_body = extract_xml_tag_content(unescaped, "response")
 	if response_body and "<response" in response_body.lower():
 		response_body = extract_xml_tag_content(response_body, "response")
+	if not response_body and (
+		"<keep_original" in cleaned.lower()
+		or "<new_name" in cleaned.lower()
+		or "<file" in cleaned.lower()
+	):
+		return cleaned
 	return response_body
+
+
+def _extract_reason_text(response_body: str) -> str:
+	reason_text = extract_xml_tag_content(response_body, "reason")
+	if reason_text:
+		return reason_text
+	match = re.search(r"<reason\b([^>/]*?)/?>", response_body, flags=re.IGNORECASE)
+	if not match:
+		return ""
+	attrs = match.group(1).strip()
+	if not attrs:
+		return ""
+	return html.unescape(" ".join(attrs.split()))
 
 
 def parse_rename_response(text: str) -> RenameResult:
 	response_body = _coerce_response_body(text)
 	if not response_body:
-		raise ParseError("Missing <response> block in rename response.", text)
+		raise ParseError("Missing required tags in rename response.", text)
 	new_name = extract_xml_tag_content(response_body, "new_name")
-	reason = extract_xml_tag_content(response_body, "reason")
+	reason = _extract_reason_text(response_body)
 	if not new_name:
 		raise ParseError("Missing <new_name> in rename response.", text)
 	if not reason:
@@ -89,9 +108,9 @@ def parse_keep_response(
 ) -> KeepResult:
 	response_body = _coerce_response_body(text)
 	if not response_body:
-		raise ParseError("Missing <response> block in keep response.", text)
+		raise ParseError("Missing required tags in keep response.", text)
 	keep_text = extract_xml_tag_content(response_body, "keep_original").strip().lower()
-	reason = extract_xml_tag_content(response_body, "reason")
+	reason = _extract_reason_text(response_body)
 	if not keep_text:
 		raise ParseError("Missing <keep_original> in keep response.", text)
 	keep = keep_text.startswith("t") or keep_text == "1" or keep_text == "yes"
@@ -111,7 +130,7 @@ def parse_keep_response(
 def parse_sort_response(text: str, expected_paths: list[str]) -> SortResult:
 	response_body = _coerce_response_body(text)
 	if not response_body:
-		raise ParseError("Missing <response> block in sort response.", text)
+		raise ParseError("Missing required tags in sort response.", text)
 	mapping: dict[str, str] = {}
 	for match in re.finditer(
 		r"<file\b[^>]*\bpath\s*=\s*[\"']([^\"']+)[\"'][^>]*>(.*?)</file>",

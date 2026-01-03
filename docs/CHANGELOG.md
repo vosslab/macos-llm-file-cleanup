@@ -55,6 +55,16 @@
 - Handle nested/escaped `<response>` blocks when Apple returns XML inside strings.
 - Update keep-original prompt schema to discourage template echoing and nested responses.
 - Fix folder-vs-file test to use the current organizer plan API and normalize escaped quotes in keep reasons.
+- Log `keep_original` decisions to `KEEP_ORIGINAL_LOG.txt` for analysis.
+- Log raw keep-original LLM responses to `KEEP_ORIGINAL.log` with file context.
+- Include parsed keep-original values alongside raw responses in `KEEP_ORIGINAL.log`.
+- Simplify keep-original parsing to use text between tags only.
+- Accept rename/sort responses without a <response> wrapper when tags are present.
+- Treat `<reason ...>` attributes as reason text when the reason body is missing.
+- Update LLM prompts to request flat tags without XML wrappers or XML wording.
+- Remove "XML" wording from AppleLLM instructions; request tags only.
+- Remove Apple-specific tag-return instruction to keep prompts backend-agnostic.
+- Remove Apple-specific system instruction text to keep prompts fully shared.
 - Rename Apple transport label to AppleLLM in LLM logging.
 - Sanitize rename prompt content to strip non-printables, long tokens, and repeated lines.
 - Retry Apple rename prompts with a minimal title+excerpt prompt on guardrail errors before falling back.
