@@ -4,8 +4,25 @@ from __future__ import annotations
 # Standard Library
 from pathlib import Path
 import csv
-import zipfile
-import xml.etree.ElementTree as ET
+
+try:
+	from odf import table as odf_table
+	from odf import text as odf_text
+	from odf.opendocument import load as odf_load
+except Exception:
+	odf_table = None
+	odf_text = None
+	odf_load = None
+
+try:
+	import openpyxl
+except Exception:
+	openpyxl = None
+
+try:
+	import xlrd
+except Exception:
+	xlrd = None
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
@@ -47,10 +64,18 @@ class SpreadsheetPlugin(FileMetadataPlugin):
 			preview = self._read_delimited(path, delimiter="\t" if ext == "tsv" else ",")
 			if preview:
 				return preview
-		if ext in {"xlsx"}:
-			names = self._xlsx_sheet_names(path)
-			if names:
-				return f"Sheets: {', '.join(names[:5])}"
+		if ext == "ods":
+			preview = self._ods_preview(path)
+			if preview:
+				return preview
+		if ext == "xlsx":
+			preview = self._xlsx_preview(path)
+			if preview:
+				return preview
+		if ext == "xls":
+			preview = self._xls_preview(path)
+			if preview:
+				return preview
 		return f"Data file {path.name}"
 
 	#============================================
@@ -78,20 +103,127 @@ class SpreadsheetPlugin(FileMetadataPlugin):
 			return None
 
 	#============================================
-	def _xlsx_sheet_names(self, path: Path) -> list[str]:
+	#============================================
+	def _xlsx_preview(self, path: Path) -> str | None:
 		"""
-		Parse sheet names from an xlsx file without heavy deps.
+		Extract sheet names plus first row and first column previews.
 		"""
-		names: list[str] = []
+		if not openpyxl:
+			return None
 		try:
-			with zipfile.ZipFile(path) as zf:
-				with zf.open("xl/workbook.xml") as wb:
-					tree = ET.parse(wb)
-					root = tree.getroot()
-					for sheet in root.findall(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}sheet"):
-						name = sheet.attrib.get("name")
-						if name:
-							names.append(name)
+			wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+			sheet_names = list(wb.sheetnames)
+			ws = wb[sheet_names[0]] if sheet_names else wb.active
+			row1_values: list[str] = []
+			for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+				for value in row:
+					if value is None:
+						continue
+					text = str(value).strip()
+					if text:
+						row1_values.append(text)
+					if len(row1_values) >= 8:
+						break
+			col1_values: list[str] = []
+			for row in ws.iter_rows(min_col=1, max_col=1, values_only=True):
+				value = row[0] if row else None
+				if value is None:
+					continue
+				text = str(value).strip()
+				if text:
+					col1_values.append(text)
+				if len(col1_values) >= 8:
+					break
+			parts: list[str] = []
+			if sheet_names:
+				parts.append(f"Sheets: {', '.join(sheet_names[:5])}")
+			if row1_values:
+				parts.append("Row1: " + " | ".join(row1_values[:8]))
+			if col1_values:
+				parts.append("Col1: " + " | ".join(col1_values[:8]))
+			summary = " || ".join(parts).strip()
+			return summary[:800] if summary else None
 		except Exception:
-			return []
-		return names
+			return None
+
+	#============================================
+	def _xls_preview(self, path: Path) -> str | None:
+		if not xlrd:
+			return None
+		try:
+			book = xlrd.open_workbook(path)
+			sheet_names = book.sheet_names()
+			sheet = book.sheet_by_index(0)
+			row1_values = [
+				str(value).strip()
+				for value in sheet.row_values(0)[:8]
+				if value not in (None, "")
+			]
+			col1_values = [
+				str(value).strip()
+				for value in sheet.col_values(0)[:8]
+				if value not in (None, "")
+			]
+			parts: list[str] = []
+			if sheet_names:
+				parts.append(f"Sheets: {', '.join(sheet_names[:5])}")
+			if row1_values:
+				parts.append("Row1: " + " | ".join(row1_values[:8]))
+			if col1_values:
+				parts.append("Col1: " + " | ".join(col1_values[:8]))
+			summary = " || ".join(parts).strip()
+			return summary[:800] if summary else None
+		except Exception:
+			return None
+
+	#============================================
+	def _ods_preview(self, path: Path) -> str | None:
+		if not odf_load or not odf_table or not odf_text:
+			return None
+		try:
+			document = odf_load(str(path))
+			sheets = document.spreadsheet.getElementsByType(odf_table.Table)
+			if not sheets:
+				return None
+			names: list[str] = []
+			preview_rows: list[str] = []
+			col1_values: list[str] = []
+			for sheet in sheets:
+				name = sheet.getAttribute("name")
+				if name:
+					names.append(name)
+				if preview_rows:
+					continue
+				for row in sheet.getElementsByType(odf_table.TableRow):
+					row_values: list[str] = []
+					first_col: str | None = None
+					for cell in row.getElementsByType(odf_table.TableCell):
+						paras = cell.getElementsByType(odf_text.P)
+						text_bits = []
+						for para in paras:
+							if para.firstChild:
+								text_bits.append(str(para.firstChild.data))
+						cell_text = " ".join(text_bits).strip()
+						if cell_text:
+							row_values.append(cell_text)
+							if first_col is None:
+								first_col = cell_text
+						if len(row_values) >= 10:
+							break
+					if row_values:
+						preview_rows.append(" | ".join(row_values))
+					if first_col and len(col1_values) < 8:
+						col1_values.append(first_col)
+					if len(preview_rows) >= 2:
+						break
+			summary_parts: list[str] = []
+			if names:
+				summary_parts.append(f"Sheets: {', '.join(names[:5])}")
+			if preview_rows:
+				summary_parts.append("Preview: " + " || ".join(preview_rows))
+			if col1_values:
+				summary_parts.append("Col1: " + " | ".join(col1_values[:8]))
+			summary = " ".join(summary_parts).strip()
+			return summary[:800] if summary else None
+		except Exception:
+			return None

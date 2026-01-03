@@ -151,6 +151,35 @@ def _is_guardrail_error(exc: Exception) -> bool:
 
 #============================================
 
+def _next_guardrail_dump_path() -> Path:
+	repo_root = Path(__file__).resolve().parents[1]
+	pattern = re.compile(r"GuardrailViolationError_(\d+)\.txt$")
+	max_num = 0
+	for path in repo_root.glob("GuardrailViolationError_*.txt"):
+		match = pattern.match(path.name)
+		if not match:
+			continue
+		try:
+			max_num = max(max_num, int(match.group(1)))
+		except ValueError:
+			continue
+	next_num = max_num + 1
+	return repo_root / f"GuardrailViolationError_{next_num:02d}.txt"
+
+
+def _dump_guardrail_prompt(prompt: str) -> Path | None:
+	if not prompt:
+		return None
+	path = _next_guardrail_dump_path()
+	try:
+		path.write_text(prompt, encoding="utf-8")
+	except Exception:
+		return None
+	return path
+
+
+#============================================
+
 ALLOWED_CATEGORIES: list[str] = [
 	"Document",
 	"Spreadsheet",
@@ -517,14 +546,21 @@ class AppleLLM(BaseClassLLM):
 	def _ask(self, prompt: str, max_tokens: int = 200) -> str:
 		self._require_apple_intelligence()
 		from applefoundationmodels import Session
-		with Session(
-			instructions=(
-				"You generate concise, structured answers for file renaming. "
-				"Return only the XML requested by the prompt."
-			)
-		) as session:
-			response = session.generate(prompt, max_tokens=max_tokens, temperature=0.2)
-		return response.text.strip()
+		try:
+			with Session(
+				instructions=(
+					"You generate concise, structured answers for file renaming. "
+					"Return only the XML requested by the prompt."
+				)
+			) as session:
+				response = session.generate(prompt, max_tokens=max_tokens, temperature=0.2)
+			return response.text.strip()
+		except Exception as exc:
+			if _is_guardrail_error(exc):
+				dump_path = _dump_guardrail_prompt(prompt)
+				if dump_path:
+					logging.warning("GuardrailViolationError: prompt saved to %s", dump_path)
+			raise
 
 	#============================================
 	def suggest_name_and_category(

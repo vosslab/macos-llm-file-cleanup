@@ -6,9 +6,11 @@ from pathlib import Path
 try:
 	from odf import text
 	from odf.opendocument import load
+	from odf import teletype
 except Exception:
 	text = None
 	load = None
+	teletype = None
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
@@ -51,15 +53,16 @@ class OdtPlugin(FileMetadataPlugin):
 		meta = FileMetadata(path=path, plugin_name=self.name)
 		meta.extra["size_bytes"] = path.stat().st_size
 		meta.extra["extension"] = path.suffix.lstrip(".")
-		if not load or not text:
+		if not load or not text or not teletype:
 			return meta
 		try:
 			document = load(str(path))
 			paras = document.getElementsByType(text.P)
 			snippets: list[str] = []
 			for para in paras:
-				if para.firstChild:
-					snippets.append(str(para))
+				para_text = teletype.extractText(para).strip()
+				if para_text:
+					snippets.append(para_text)
 			if snippets:
 				full = " ".join(snippets)
 				head = full[:256]

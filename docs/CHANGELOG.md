@@ -33,6 +33,20 @@
 - Refine keep-original ladder to favor real words and make machine-token tests explicit.
 - Compute keep-original feature flags deterministically and pass them into the prompt for LLM decisions.
 - Drop requirement that keep-original reasons quote the stem; require citing a feature flag.
+- Remove pyvips/libvips as a required dependency for Moondream2 captioning.
+- Improve ODT/ODP text extraction via odfpy teletype and add optional LibreOffice conversion for DOC/PPT when available.
+- Drop textract as a required dependency; DOC/PPT extraction now relies on LibreOffice conversion when available.
+- Render up to two PDF pages for captioning even when PDFs are longer, and refine PDF/ocr sample labels.
+- Add ODS preview extraction (sheet names + first rows) in the spreadsheet plugin.
+- Include sheet names plus first row/column preview for ODS and XLSX metadata.
+- Use openpyxl/xlrd for XLSX/XLS previews instead of XML parsing, and require those deps.
+- Remove Python fallback keep_reason strings so LLM reasons are used as-is.
+- Add repo-root SUPPORTED_EXTENSIONS.txt describing content-aware extraction per extension.
+- Move detailed extension notes to docs/SUPPORTED_EXTENSIONS.md and make root list a simple extension list.
+- Add content extraction for DOC/PPT via textract and PPTX/ODP via python-pptx/odfpy.
+- Require python-pptx and textract (plus antiword/catdoc) for presentation/document content extraction.
+- Remove unavailable Homebrew formula `catdoc`; rely on `antiword` for .doc support.
+- Dump Apple guardrail prompts to GuardrailViolationError_XX.txt in the repo root.
 - Show document summary text as [META] text sample instead of [WHY] desc.
 - Add mutually exclusive randomize/sorted CLI ordering with randomize as the default.
 - Adjust LLM prompts to request XML-only replies with minimal chatter.

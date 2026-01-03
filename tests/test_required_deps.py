@@ -36,3 +36,21 @@ def test_pdf2image_available():
 			writer.write(handle)
 		info = pdfinfo_from_path(pdf_path)
 		assert int(info.get("Pages", 0)) == 1
+
+
+def test_openpyxl_available():
+	import openpyxl
+
+	assert hasattr(openpyxl, "load_workbook")
+
+
+def test_xlrd_available():
+	import xlrd
+
+	assert hasattr(xlrd, "open_workbook")
+
+
+def test_python_pptx_available():
+	import pptx
+
+	assert hasattr(pptx, "Presentation")

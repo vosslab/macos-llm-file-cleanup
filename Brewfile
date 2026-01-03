@@ -1,4 +1,5 @@
 brew "libheif"
+brew "antiword"
 brew "poppler"
 brew "ollama"
 brew "python@3.12"

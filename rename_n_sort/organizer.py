@@ -140,7 +140,7 @@ class Organizer:
 		pdf_text = metadata.extra.get("pdf_text") if metadata else None
 		if pdf_text:
 			if self._normalize_text(metadata.summary) != self._normalize_text(pdf_text):
-				self._print_meta("pdf_text_sample", pdf_text)
+				self._print_meta("raw_pdf_text_sample", pdf_text)
 		meta_payload = self._to_payload(metadata, path)
 		new_name, rename_reason = self.llm.rename_file_explain(meta_payload, path.name)
 		new_name = self._normalize_new_name(path.name, new_name)
@@ -153,7 +153,7 @@ class Organizer:
 			if orig_stem.lower() not in new_name.lower():
 				combined = f"{orig_stem}_{new_name}"
 				new_name = self._normalize_new_name(path.name, combined)
-				keep_reason = keep_reason or "kept original stem as prefix"
+				keep_reason = keep_reason or ""
 		plan = PlannedChange(
 			source=path,
 			target=path,

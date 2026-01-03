@@ -90,24 +90,30 @@ class PDFPlugin(FileMetadataPlugin):
 					extracted = page.extract_text()
 					if extracted:
 						text_bits.append(extracted.strip())
+				joined = ""
 				if text_bits:
 					joined = " ".join(text_bits)
 					meta.extra["pdf_text"] = joined[:2000]
 				page_count = len(pages)
 				meta.extra["page_count"] = page_count
-				if page_count <= 2:
-					self._summarize_with_images(path, page_count, meta)
-				elif text_bits:
+				if page_count > 0:
+					self._summarize_with_images(path, page_count, meta, max_pages=2)
+				if not meta.summary and joined:
 					meta.summary = joined[:1500]
 		except Exception:
 			return
 
 	#============================================
-	def _summarize_with_images(self, path: Path, page_count: int, meta: FileMetadata) -> None:
+	def _summarize_with_images(
+		self, path: Path, page_count: int, meta: FileMetadata, max_pages: int = 2
+	) -> None:
 		"""
 		Render PDF pages to images and run OCR/captioning.
 		"""
-		self._print_meta("pdf_render", f"rendering {page_count} page(s) for OCR/captioning")
+		render_pages = min(page_count, max_pages)
+		if render_pages <= 0:
+			return
+		self._print_meta("pdf_render", f"rendering {render_pages} page(s) for OCR/captioning")
 		image_plugin = ImagePlugin()
 		captions: list[str] = []
 		ocr_bits: list[str] = []
@@ -116,7 +122,7 @@ class PDFPlugin(FileMetadataPlugin):
 			images = convert_from_path(
 				str(path),
 				first_page=1,
-				last_page=page_count,
+				last_page=render_pages,
 				dpi=200,
 			)
 			for page_idx, image in enumerate(images, start=1):
@@ -132,10 +138,10 @@ class PDFPlugin(FileMetadataPlugin):
 		ocr_text = " | ".join(ocr_bits).strip()
 		if caption_text:
 			meta.extra["caption"] = caption_text
-			self._print_meta("caption_sample", caption_text)
+			self._print_meta("pdf_caption_sample", caption_text)
 		if ocr_text:
 			meta.extra["ocr_text"] = ocr_text
-			self._print_meta("ocr_sample", ocr_text)
+			self._print_meta("ocr_pdf_text_sample", ocr_text)
 		if caption_text or ocr_text:
 			meta.extra["caption_note"] = (
 				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."

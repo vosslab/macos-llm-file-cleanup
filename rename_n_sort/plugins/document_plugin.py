@@ -3,6 +3,15 @@ from __future__ import annotations
 
 # Standard Library
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+# PIP3 modules
+try:
+	import docx
+except Exception:
+	docx = None
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
@@ -47,7 +56,10 @@ class DocumentPlugin(FileMetadataPlugin):
 		"""
 		Read a short preview for text-like documents.
 		"""
-		if path.suffix.lower().lstrip(".") not in {"txt", "md", "rtf"}:
+		ext = path.suffix.lower().lstrip(".")
+		if ext == "doc":
+			return self._read_doc_via_soffice(path)
+		if ext not in {"txt", "md", "rtf"}:
 			return None
 		try:
 			text_blob = path.read_text(encoding="utf-8", errors="ignore")
@@ -57,3 +69,51 @@ class DocumentPlugin(FileMetadataPlugin):
 		if not flattened:
 			return None
 		return flattened[:800]
+
+	def _read_doc_via_soffice(self, path: Path) -> str | None:
+		if not docx:
+			return None
+		soffice = shutil.which("soffice")
+		if not soffice:
+			return None
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			output_path = Path(tmp_dir) / f"{path.stem}.docx"
+			try:
+				subprocess.run(
+					[
+						soffice,
+						"--headless",
+						"--convert-to",
+						"docx",
+						"--outdir",
+						tmp_dir,
+						str(path),
+					],
+					check=True,
+					stdout=subprocess.DEVNULL,
+					stderr=subprocess.DEVNULL,
+					timeout=30,
+				)
+			except Exception:
+				return None
+			if not output_path.exists():
+				return None
+			return self._extract_docx_summary(output_path)
+
+	def _extract_docx_summary(self, path: Path) -> str | None:
+		if not docx:
+			return None
+		try:
+			document = docx.Document(path)
+		except Exception:
+			return None
+		all_text: list[str] = []
+		for paragraph in document.paragraphs:
+			if paragraph.text:
+				all_text.append(paragraph.text.strip())
+		if not all_text:
+			return None
+		full = " ".join(all_text)
+		head = full[:256]
+		tail = full[-256:] if len(full) > 256 else ""
+		return f"{head} ... {tail}".strip() if tail else head
