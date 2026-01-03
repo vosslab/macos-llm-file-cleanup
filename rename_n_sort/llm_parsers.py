@@ -6,7 +6,7 @@ Backend-agnostic response parsers.
 from __future__ import annotations
 
 # Standard Library
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import html
 import re
 
@@ -43,6 +43,7 @@ class KeepResult:
 class SortResult:
 	assignments: dict[str, str]
 	raw_text: str
+	reasons: dict[str, str] = field(default_factory=dict)
 
 
 _CODE_FENCE_RE = re.compile(r"```[a-zA-Z0-9_+-]*\n(.*?)```", re.DOTALL)
@@ -142,4 +143,12 @@ def parse_sort_response(text: str, expected_paths: list[str]) -> SortResult:
 	if len(categories) > 1:
 		raise ParseError("Duplicate <category> tags in sort response.", text)
 	category = categories[0].strip()
-	return SortResult(assignments={expected_paths[0]: category}, raw_text=text)
+	reasons = _find_tag_values(response_body, "reason")
+	if len(reasons) > 1:
+		raise ParseError("Duplicate <reason> tags in sort response.", text)
+	reason = reasons[0].strip() if reasons else ""
+	return SortResult(
+		assignments={expected_paths[0]: category},
+		reasons={expected_paths[0]: reason} if reason else {},
+		raw_text=text,
+	)

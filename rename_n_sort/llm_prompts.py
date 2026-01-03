@@ -50,14 +50,17 @@ class SortRequest:
 
 
 RENAME_EXAMPLE_OUTPUT = (
-	"<new_name>Invoice_20240115_Acorn_Supply.pdf</new_name>\n"
-	"<reason>invoice with vendor and date</reason>"
+	"<new_name>GV60_MAX_Fan_Manual_2015.pdf</new_name>\n"
+	"<reason>manual with model and year</reason>"
 )
 KEEP_EXAMPLE_OUTPUT = (
-	"<stem_action>normalize</stem_action>\n"
-	"<reason>date and topic in stem are useful</reason>"
+	"<stem_action>keep</stem_action>\n"
+	"<reason>stem has a meaningful model number</reason>"
 )
-SORT_EXAMPLE_OUTPUT = "<category>Document</category>"
+SORT_EXAMPLE_OUTPUT = (
+	"<category>Document</category>\n"
+	"<reason>manual with model and year</reason>"
+)
 
 
 def build_rename_prompt(req: RenameRequest) -> str:
@@ -66,6 +69,10 @@ def build_rename_prompt(req: RenameRequest) -> str:
 		lines.append(f"Context: {req.context}")
 	lines.append(
 		f"Rename this file concisely (max {PROMPT_FILENAME_CHARS} chars)."
+	)
+	lines.append(
+		"If the document type is unclear, describe the content neutrally "
+		"and avoid guessing."
 	)
 	title = _sanitize_prompt_text(req.metadata.get("title"), max_chars=200)
 	keywords = _sanitize_prompt_list(req.metadata.get("keywords"))
@@ -106,6 +113,10 @@ def build_rename_prompt_minimal(req: RenameRequest) -> str:
 	lines.append(
 		f"Rename this file concisely (max {PROMPT_FILENAME_CHARS} chars)."
 	)
+	lines.append(
+		"If the document type is unclear, describe the content neutrally "
+		"and avoid guessing."
+	)
 	title = _sanitize_prompt_text(req.metadata.get("title"), max_chars=200)
 	excerpt = _prompt_excerpt(req.metadata)
 	filetype_hint = _sanitize_prompt_text(req.metadata.get("filetype_hint"))
@@ -127,6 +138,7 @@ def build_keep_prompt(req: KeepRequest) -> str:
 	lines: list[str] = []
 	lines.append("Choose stem_action: drop | normalize | keep.")
 	lines.append("Reason should mention what useful info is in the stem.")
+	lines.append("Prefer keep when the stem is already concise; normalize only to shorten long or noisy stems.")
 	lines.append(f"original_stem: {req.original_stem}")
 	lines.append(f"suggested_name: {req.suggested_name}")
 	if req.extension:
@@ -135,8 +147,16 @@ def build_keep_prompt(req: KeepRequest) -> str:
 	for key, value in req.features.items():
 		lines.append(f"- {key}: {value}")
 	lines.append("Return only the tags shown below.")
-	lines.append("Example output:")
-	lines.append(KEEP_EXAMPLE_OUTPUT)
+	lines.append("Example outputs (choose only one):")
+	lines.append("keep:")
+	lines.append("<stem_action>keep</stem_action>")
+	lines.append("<reason>stem has a meaningful model number</reason>")
+	lines.append("drop:")
+	lines.append("<stem_action>drop</stem_action>")
+	lines.append("<reason>stem is a generic download label</reason>")
+	lines.append("normalize:")
+	lines.append("<stem_action>normalize</stem_action>")
+	lines.append("<reason>stem is long; keep only the core identifier</reason>")
 	return "\n".join(lines)
 
 
@@ -145,6 +165,7 @@ def build_sort_prompt(req: SortRequest) -> str:
 	if req.context:
 		lines.append(f"Context: {req.context}")
 	lines.append("Assign one allowed category to the file below.")
+	lines.append("Give a short reason tied to the file details.")
 	lines.append("Allowed categories:")
 	for cat in ALLOWED_CATEGORIES:
 		lines.append(f"- {cat}")

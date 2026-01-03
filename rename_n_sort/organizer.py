@@ -5,6 +5,7 @@ Core organizer: metadata -> LLM -> rename plan.
 
 # Standard Library
 import logging
+import re
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ from .renamer import apply_move
 from .scanner import iter_files
 
 logger = logging.getLogger(__name__)
+_DOC_TYPE_TOKENS = {"invoice", "receipt", "order"}
 
 #============================================
 
@@ -175,6 +177,53 @@ class Organizer:
 			return
 
 	#============================================
+	def _log_sort_decision(self, plan: PlannedChange) -> None:
+		try:
+			with open("sort_decisions.log", "a", encoding="utf-8") as handle:
+				handle.write("=" * 80 + "\n")
+				handle.write(f"FILE: {self._display_path(plan.source)}\n")
+				handle.write(f"FOLDER: {self._display_target(plan.target.parent)}\n")
+				handle.write(f"TARGET: {self._display_target(plan.target)}\n")
+				handle.write(f"category={plan.category}\n")
+				handle.write(f"reason={plan.category_reason or ''}\n")
+		except Exception:
+			return
+
+	#============================================
+	def _log_run_metrics(self, plans: list[PlannedChange]) -> None:
+		if not plans:
+			return
+		total = len(plans)
+		fewer_tokens = 0
+		keep_count = 0
+		invoice_files = 0
+		receipt_files = 0
+		for plan in plans:
+			orig_tokens = len(self._tokenize(plan.source.stem))
+			new_tokens = len(self._tokenize(plan.new_name))
+			if new_tokens < orig_tokens:
+				fewer_tokens += 1
+			if plan.stem_action == "keep":
+				keep_count += 1
+			name_tokens = self._tokenize(plan.new_name)
+			if "invoice" in name_tokens:
+				invoice_files += 1
+			if "receipt" in name_tokens:
+				receipt_files += 1
+		def _pct(count: int) -> str:
+			return f"{(count / total) * 100:.1f}%"
+		try:
+			with open("run_metrics.log", "a", encoding="utf-8") as handle:
+				handle.write("=" * 80 + "\n")
+				handle.write(f"total_files={total}\n")
+				handle.write(f"fewer_tokens={fewer_tokens} ({_pct(fewer_tokens)})\n")
+				handle.write(f"stem_action_keep={keep_count} ({_pct(keep_count)})\n")
+				handle.write(f"invoice_files={invoice_files}\n")
+				handle.write(f"receipt_files={receipt_files}\n")
+		except Exception:
+			return
+
+	#============================================
 	def _build_sort_description(self, meta_payload: dict) -> str:
 		filetype_hint = meta_payload.get("filetype_hint") if meta_payload else ""
 		title = meta_payload.get("title") if meta_payload else ""
@@ -186,6 +235,52 @@ class Organizer:
 		if not text:
 			return ""
 		return " ".join(str(text).split()).strip().lower()
+
+	#============================================
+	def _tokenize(self, text: str) -> set[str]:
+		if not text:
+			return set()
+		return {token.lower() for token in re.findall(r"[A-Za-z0-9]+", text)}
+
+	#============================================
+	def _collect_doc_type_text(self, meta_payload: dict, path: Path, orig_stem: str) -> str:
+		parts: list[str] = [orig_stem, path.name]
+		for key in ("title", "summary", "description", "caption", "ocr_text"):
+			value = meta_payload.get(key)
+			if isinstance(value, (list, tuple, set)):
+				parts.extend(str(item) for item in value if item)
+			elif value:
+				parts.append(str(value))
+		keywords = meta_payload.get("keywords")
+		if isinstance(keywords, (list, tuple, set)):
+			parts.extend(str(item) for item in keywords if item)
+		elif keywords:
+			parts.append(str(keywords))
+		return " ".join(parts)
+
+	#============================================
+	def _apply_doc_type_safeguard(
+		self,
+		*,
+		path: Path,
+		meta_payload: dict,
+		orig_stem: str,
+		new_name: str,
+		stem_action: str,
+	) -> tuple[str, str]:
+		if stem_action != "normalize":
+			return stem_action, ""
+		name_tokens = self._tokenize(new_name)
+		suspect = name_tokens.intersection(_DOC_TYPE_TOKENS)
+		if not suspect:
+			return stem_action, ""
+		content_text = self._collect_doc_type_text(meta_payload, path, orig_stem)
+		content_tokens = self._tokenize(content_text)
+		missing = sorted(term for term in suspect if term not in content_tokens)
+		if not missing:
+			return stem_action, ""
+		override = f"override: doc type not found in metadata ({', '.join(missing)})"
+		return "keep", override
 
 	#============================================
 	def _print_meta(self, label: str, value: str) -> None:
@@ -215,6 +310,15 @@ class Organizer:
 		stem_reason = keep_result.reason
 		stem_raw = keep_result.raw_text
 		stem_reason = normalize_reason(stem_reason)
+		stem_action, override_reason = self._apply_doc_type_safeguard(
+			path=path,
+			meta_payload=meta_payload,
+			orig_stem=orig_stem,
+			new_name=new_name,
+			stem_action=stem_action,
+		)
+		if override_reason:
+			stem_reason = f"{stem_reason}; {override_reason}" if stem_reason else override_reason
 		if stem_action == "keep":
 			if orig_stem.lower() not in new_name.lower():
 				combined = f"{orig_stem}_{new_name}"
@@ -261,7 +365,12 @@ class Organizer:
 	#============================================
 	def _reset_run_logs(self) -> None:
 		start_line = f"RUN_START {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
-		for log_path in ("KEEP_ORIGINAL.log", "XML_PARSE_FAILURES.log"):
+		for log_path in (
+			"KEEP_ORIGINAL.log",
+			"XML_PARSE_FAILURES.log",
+			"sort_decisions.log",
+			"run_metrics.log",
+		):
 			try:
 				with open(log_path, "w", encoding="utf-8") as handle:
 					handle.write(start_line)
@@ -323,6 +432,7 @@ class Organizer:
 			self._print_why("category_reason", plan.category_reason)
 		if self.config.dry_run:
 			self._print_dry_run_summary(plans)
+		self._log_run_metrics(plans)
 		return plans
 
 	#============================================
@@ -371,13 +481,17 @@ class Organizer:
 			try:
 				result = self.llm.sort([summary])
 				selection = result.assignments.get(summary.path, "Other")
+				sort_reason = result.reasons.get(summary.path, "")
 			except Exception as exc:
 				self._print_why("error", f"{exc.__class__.__name__}: {exc}")
 				self._print_why("action", "using fallback category Other")
 				selection = "Other"
+				sort_reason = ""
 			category = selection.split("/")[0] if selection else "Other"
 			plan.category = category
+			plan.category_reason = sort_reason
 			plan.target = self._target_path(plan.source, plan.new_name, category)
+			self._log_sort_decision(plan)
 			self._print_pair(
 				"DEST",
 				self._display_path(plan.source),
@@ -404,6 +518,7 @@ class Organizer:
 			plans.append(plan)
 		if self.config.dry_run:
 			self._print_dry_run_summary(plans)
+		self._log_run_metrics(plans)
 		return plans
 
 	#============================================
@@ -420,12 +535,15 @@ class Organizer:
 			for offset, item in enumerate(batch):
 				category_text = result.assignments.get(item.path, "Other")
 				category = category_text.split("/")[0] if category_text else "Other"
+				sort_reason = result.reasons.get(item.path, "")
 				plan_index = start + offset
 				if plan_index < len(plans):
 					plans[plan_index].category = category
+					plans[plan_index].category_reason = sort_reason
 					plans[plan_index].target = self._target_path(
 						plans[plan_index].source, plans[plan_index].new_name, category
 					)
+					self._log_sort_decision(plans[plan_index])
 
 	#============================================
 	def apply(self, plans: list[PlannedChange]) -> list[PlannedChange]:

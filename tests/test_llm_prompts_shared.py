@@ -65,12 +65,13 @@ def test_prompts_avoid_response_and_short_reason():
 	assert "<stem_action>" in keep_prompt
 
 
-def test_sort_prompt_uses_category_only():
+def test_sort_prompt_includes_reason():
 	req = SortRequest(
 		files=[SortItem(path="/tmp/a.pdf", name="A", ext="pdf", description="")],
 		context=None,
 	)
 	prompt = build_sort_prompt(req)
 	assert "<category>" in prompt
+	assert "<reason>" in prompt
 	assert "<file" not in prompt
 	assert "<response>" not in prompt

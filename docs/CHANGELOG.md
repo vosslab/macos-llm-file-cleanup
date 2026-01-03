@@ -1,6 +1,11 @@
 # Changelog
 
 ## 2026-01-03
+- Log LLM sort decisions (filename, target folder, reason) to `sort_decisions.log`.
+- Add `run_metrics.log` with token/keep rates and invoice/receipt keyword counts per run.
+- Add rename prompt guidance to avoid guessing document type and update examples away from invoice bias.
+- Nudge keep-original prompting to prefer `keep` for concise stems and normalize only to shorten noise.
+- Add a doc-type safeguard that forces `keep` when rename introduces invoice/receipt/order terms absent from metadata.
 - Update module references to `rename_n_sort` across code, tests, CLI entrypoint, and docs.
 - Rename plugin test files to the `test_plugin_<type>.py` convention.
 - Split plugin coverage into individual `test_plugin_<type>.py` files for all plugins.

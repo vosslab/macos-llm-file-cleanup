@@ -40,6 +40,14 @@ def test_parse_sort_response_expected_paths():
 	assert result.assignments["/tmp/a.pdf"] == "Document"
 
 
+def test_parse_sort_response_with_reason():
+	result = parse_sort_response(
+		"<category>Document</category><reason>invoice</reason>",
+		["/tmp/a.pdf"],
+	)
+	assert result.reasons["/tmp/a.pdf"] == "invoice"
+
+
 def test_extracts_last_response_block():
 	raw = "<response>first</response> chatter <response>second</response>"
 	result = extract_xml_tag_content(raw, "response")

@@ -80,3 +80,11 @@ def test_parse_sort_missing_category_raises():
 			"no category tag here",
 			["/tmp/a.pdf"],
 		)
+
+
+def test_parse_sort_duplicate_reason_raises():
+	with pytest.raises(ParseError):
+		parse_sort_response(
+			"<category>Document</category><reason>one</reason><reason>two</reason>",
+			["/tmp/a.pdf"],
+		)

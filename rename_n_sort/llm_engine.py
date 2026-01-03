@@ -97,6 +97,7 @@ class LLMEngine:
 		if not files:
 			return SortResult(assignments={}, raw_text="")
 		assignments: dict[str, str] = {}
+		reasons: dict[str, str] = {}
 		last_raw = ""
 		for item in files:
 			req = SortRequest(files=[item], context=self.context)
@@ -116,8 +117,10 @@ class LLMEngine:
 				max_tokens=120,
 			)
 			assignments.update(result.assignments)
+			for path, reason in result.reasons.items():
+				reasons[path] = normalize_reason(reason)
 			last_raw = result.raw_text
-		return SortResult(assignments=assignments, raw_text=last_raw)
+		return SortResult(assignments=assignments, reasons=reasons, raw_text=last_raw)
 
 	#============================================
 	def _generate_with_fallback(
