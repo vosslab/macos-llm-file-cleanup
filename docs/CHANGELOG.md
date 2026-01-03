@@ -36,6 +36,14 @@
 - Remove pyvips/libvips as a required dependency for Moondream2 captioning.
 - Improve ODT/ODP text extraction via odfpy teletype and add optional LibreOffice conversion for DOC/PPT when available.
 - Drop textract as a required dependency; DOC/PPT extraction now relies on LibreOffice conversion when available.
+- Skip files with unsupported extensions before LLM processing to avoid guardrail errors.
+- Decouple keep-original decisions from content payloads and allow keep-original to run when rename hits guardrails.
+- Sanitize rename prompt content to strip non-printables, long tokens, and repeated lines.
+- Retry Apple rename prompts with a minimal title+excerpt prompt on guardrail errors before falling back.
+- Add ODG (OpenDocument Drawing) support in the vector image plugin.
+- Add a PIL-based pyvips shim for Moondream2 to avoid libvips dependency.
+- Add HTML/HTM support via BeautifulSoup for content extraction.
+- Log Moondream2 caption start/finish with duration and truncate long caption output.
 - Render up to two PDF pages for captioning even when PDFs are longer, and refine PDF/ocr sample labels.
 - Add ODS preview extraction (sheet names + first rows) in the spreadsheet plugin.
 - Include sheet names plus first row/column preview for ODS and XLSX metadata.

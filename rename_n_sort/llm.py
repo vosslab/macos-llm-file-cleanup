@@ -29,6 +29,9 @@ _PLACEHOLDER_REASONS = {
 	"n/a",
 	"na",
 }
+_NONPRINTABLE_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_PROMPT_MAX_TOKEN_LEN = 40
+_PROMPT_EXCERPT_CHARS = 240
 
 _UUID_RE = re.compile(
 	r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
@@ -97,6 +100,61 @@ def normalize_reason(reason: str | None) -> str:
 	if "justification" in lower and len(lower.split()) <= 3:
 		return ""
 	return cleaned
+
+
+#============================================
+
+def _sanitize_prompt_text(value: object, max_token_len: int = _PROMPT_MAX_TOKEN_LEN) -> str:
+	if value is None:
+		return ""
+	text = str(value)
+	if not text:
+		return ""
+	text = text.replace("\r\n", "\n").replace("\r", "\n")
+	text = _NONPRINTABLE_RE.sub(" ", text)
+	text = text.replace("\t", " ")
+	lines: list[str] = []
+	seen: set[str] = set()
+	for raw in text.splitlines():
+		compact = " ".join(raw.split())
+		if not compact:
+			continue
+		tokens = [token for token in compact.split(" ") if len(token) <= max_token_len]
+		if not tokens:
+			continue
+		line = " ".join(tokens)
+		key = line.lower()
+		if key in seen:
+			continue
+		seen.add(key)
+		lines.append(line)
+	return "\n".join(lines)
+
+
+def _sanitize_prompt_list(value: object) -> list[str]:
+	if value is None:
+		return []
+	if isinstance(value, (list, tuple, set)):
+		cleaned: list[str] = []
+		for item in value:
+			text = _sanitize_prompt_text(item)
+			if text:
+				cleaned.append(text)
+		return cleaned
+	text = _sanitize_prompt_text(value)
+	return [text] if text else []
+
+
+#============================================
+
+def _prompt_excerpt(metadata: dict) -> str:
+	for key in ("summary", "description", "caption", "ocr_text"):
+		text = _sanitize_prompt_text(metadata.get(key))
+		if text:
+			if len(text) > _PROMPT_EXCERPT_CHARS:
+				return text[: _PROMPT_EXCERPT_CHARS - 3].rstrip() + "..."
+			return text
+	return ""
 
 
 #============================================
@@ -587,7 +645,14 @@ class AppleLLM(BaseClassLLM):
 	#============================================
 	def rename_file_explain(self, metadata: dict, current_name: str) -> tuple[str, str]:
 		prompt = self._build_rename_prompt(metadata, current_name)
-		response_text = self._ask(prompt, max_tokens=200)
+		try:
+			response_text = self._ask(prompt, max_tokens=200)
+		except Exception as exc:
+			if _is_guardrail_error(exc):
+				retry_prompt = self._build_rename_prompt_minimal(metadata, current_name)
+				response_text = self._ask(retry_prompt, max_tokens=160)
+			else:
+				raise
 		return self._parse_rename_response_explain(response_text, current_name)
 
 	#============================================
@@ -645,16 +710,53 @@ class AppleLLM(BaseClassLLM):
 		lines.append("  <new_name>NAME_WITH_EXTENSION</new_name>")
 		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
+		title = _sanitize_prompt_text(metadata.get("title"))
+		keywords = _sanitize_prompt_list(metadata.get("keywords"))
+		description = _sanitize_prompt_text(metadata.get("summary") or metadata.get("description"))
+		caption = _sanitize_prompt_text(metadata.get("caption"))
+		ocr_text = _sanitize_prompt_text(metadata.get("ocr_text"))
+		caption_note = _sanitize_prompt_text(metadata.get("caption_note"))
 		lines.append(f"current_name: {current_name}")
-		lines.append(f"title: {metadata.get('title')}")
-		lines.append(f"keywords: {metadata.get('keywords')}")
-		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
-		if metadata.get("caption"):
-			lines.append(f"caption: {metadata.get('caption')}")
-		if metadata.get("ocr_text"):
-			lines.append(f"ocr_text: {metadata.get('ocr_text')}")
-		if metadata.get("caption_note"):
-			lines.append(f"caption_note: {metadata.get('caption_note')}")
+		if title:
+			lines.append(f"title: {title}")
+		if keywords:
+			lines.append(f"keywords: {keywords}")
+		if description:
+			lines.append(f"description: {description}")
+		if caption:
+			lines.append(f"caption: {caption}")
+		if ocr_text:
+			lines.append(f"ocr_text: {ocr_text}")
+		if caption_note:
+			lines.append(f"caption_note: {caption_note}")
+		lines.append(f"extension: {metadata.get('extension')}")
+		return "\n".join(lines)
+
+	#============================================
+	def _build_rename_prompt_minimal(self, metadata: dict, current_name: str) -> str:
+		lines: list[str] = []
+		if self.system_message:
+			lines.append(f"Context: {self.system_message}")
+		lines.append(
+			f"Rename mode: create a concise, human-readable filename up to {PROMPT_FILENAME_CHARS} characters."
+		)
+		lines.append("Goal: the filename should make immediate sense to a person skimming a folder.")
+		lines.append("Summarize instead of listing every visible word.")
+		lines.append("Use 2-6 meaningful tokens; keep names short (1-2 names max).")
+		lines.append("Avoid phone numbers, emails, or long numeric strings.")
+		lines.append("Include a date only if clearly present and important (format YYYYMMDD).")
+		lines.append("Return XML only with minimal chatter. Use exactly:")
+		lines.append("<response>")
+		lines.append("  <new_name>NAME_WITH_EXTENSION</new_name>")
+		lines.append("  <reason>short reason (5-12 words)</reason>")
+		lines.append("</response>")
+		title = _sanitize_prompt_text(metadata.get("title"))
+		excerpt = _prompt_excerpt(metadata)
+		lines.append(f"current_name: {current_name}")
+		if title:
+			lines.append(f"title: {title}")
+		if excerpt:
+			lines.append(f"excerpt: {excerpt}")
 		lines.append(f"extension: {metadata.get('extension')}")
 		return "\n".join(lines)
 
@@ -996,16 +1098,25 @@ class OllamaChatLLM(BaseClassLLM):
 		lines.append("  <new_name>NAME_WITH_EXTENSION</new_name>")
 		lines.append("  <reason>short reason (5-12 words)</reason>")
 		lines.append("</response>")
+		title = _sanitize_prompt_text(metadata.get("title"))
+		keywords = _sanitize_prompt_list(metadata.get("keywords"))
+		description = _sanitize_prompt_text(metadata.get("summary") or metadata.get("description"))
+		caption = _sanitize_prompt_text(metadata.get("caption"))
+		ocr_text = _sanitize_prompt_text(metadata.get("ocr_text"))
+		caption_note = _sanitize_prompt_text(metadata.get("caption_note"))
 		lines.append(f"current_name: {current_name}")
-		lines.append(f"title: {metadata.get('title')}")
-		lines.append(f"keywords: {metadata.get('keywords')}")
-		lines.append(f"description: {metadata.get('summary') or metadata.get('description')}")
-		if metadata.get("caption"):
-			lines.append(f"caption: {metadata.get('caption')}")
-		if metadata.get("ocr_text"):
-			lines.append(f"ocr_text: {metadata.get('ocr_text')}")
-		if metadata.get("caption_note"):
-			lines.append(f"caption_note: {metadata.get('caption_note')}")
+		if title:
+			lines.append(f"title: {title}")
+		if keywords:
+			lines.append(f"keywords: {keywords}")
+		if description:
+			lines.append(f"description: {description}")
+		if caption:
+			lines.append(f"caption: {caption}")
+		if ocr_text:
+			lines.append(f"ocr_text: {ocr_text}")
+		if caption_note:
+			lines.append(f"caption_note: {caption_note}")
 		lines.append(f"extension: {metadata.get('extension')}")
 		return "\n".join(lines)
 

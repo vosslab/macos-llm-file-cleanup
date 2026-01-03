@@ -54,3 +54,9 @@ def test_python_pptx_available():
 	import pptx
 
 	assert hasattr(pptx, "Presentation")
+
+
+def test_beautifulsoup_available():
+	from bs4 import BeautifulSoup
+
+	assert callable(BeautifulSoup)

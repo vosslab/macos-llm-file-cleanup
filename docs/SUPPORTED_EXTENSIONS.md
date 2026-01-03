@@ -4,6 +4,7 @@ Notes
 - This reflects the active plugin registry order.
 - If multiple plugins support the same extension, the first registered plugin wins.
 - “Content-aware” means we read file contents (text/OCR/captions), not just metadata.
+- Files with unsupported extensions are skipped before LLM processing.
 
 ## PDF (content-aware)
 - pdf
@@ -15,6 +16,8 @@ Notes
   - Prefers LibreOffice (`soffice`) to convert to .docx, then parses via python-docx.
 - docx (DocxPlugin)
   - Extracts paragraphs via python-docx (head/tail snippets).
+- html, htm (HtmlPlugin)
+  - Extracts visible text via BeautifulSoup.
 - odt (OdtPlugin)
   - Extracts paragraphs via odfpy (head/tail snippets).
 - txt, md, rtf (DocumentPlugin)
@@ -49,6 +52,8 @@ Notes
 ## Vector images (content-aware)
 - svg, svgz
   - Extracts visible text nodes from SVG.
+- odg
+  - Extracts text via odfpy (drawing text boxes).
 
 ## Audio (metadata-only)
 - mp3, wav, flac, aiff, ogg
@@ -61,7 +66,3 @@ Notes
 ## Code / scripts (content-aware)
 - py, m, cpp, js, sh, pl, rb, php
   - Reads first ~10 lines of code.
-
-## Fallback
-- Any other extension
-  - mdls/stat only; no content extraction.

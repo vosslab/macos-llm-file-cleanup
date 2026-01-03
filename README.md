@@ -9,15 +9,15 @@ Local-first macOS tool that scans Downloads, Desktop, and Documents, extracts me
 - Apply safe renames/moves with collision avoidance; dry run by default.
 
 ## Supported file types (v1)
-- Documents: pdf, doc, docx, odt, rtf, pages, txt, md
+- Documents: pdf, doc, docx, odt, rtf, pages, txt, md, html, htm
 - Presentations: ppt, pptx, odp
 - Spreadsheets/data: xls, xlsx, ods, csv, tsv (csv/tsv handled by a dedicated plugin)
-- Images: jpg, jpeg, png, gif, heic, tif, tiff, bmp (bitmap) and svg/svgz (vector via dedicated plugin)
+- Images: jpg, jpeg, png, gif, heic, tif, tiff, bmp (bitmap) and svg/svgz/odg (vector via dedicated plugin)
 - Images use Moondream2 + OCR for captions (requires Moondream2 dependencies and Tesseract); install Pillow + pillow-heif (see `image` extra) for HEIC support.
 - Audio: mp3, wav, flac, aiff, ogg
 - Video: mp4, mov, mkv, webm, avi
 - Code/scripts (as text): py, m, cpp, js, sh, pl, rb, php
-- Generic fallback for anything else
+- Unsupported extensions are skipped.
 
 ## Architecture overview
 - `cli.py`: argparse interface, builds config, selects LLM, runs organizer.
@@ -30,7 +30,7 @@ Local-first macOS tool that scans Downloads, Desktop, and Documents, extracts me
 	- Media: `image_plugin.py`, `audio_plugin.py`, `video_plugin.py`
 	- Code/scripts: `code_plugin.py`
 	- Text: `text.py`
-	- Fallback: `generic.py`
+	- Fallback: `generic.py` (used for extensionless files only)
 - `llm.py`: BaseClassLLM interface, `AppleLLM` (Apple Foundation Models), `OllamaChatLLM` (chat history, /api/chat), filename/category helpers, VRAM/RAM-based model chooser.
 - `organizer.py`: orchestrates metadata -> LLM suggestion -> target path -> apply (with collision handling).
 - `renamer.py`: safe move/rename with deduping.

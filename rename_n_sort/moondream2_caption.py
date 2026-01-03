@@ -5,6 +5,11 @@ Moondream2 captioning helpers bundled with this repo.
 
 from __future__ import annotations
 
+import logging
+import sys
+import types
+
+import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoTokenizer
@@ -35,11 +40,46 @@ def _resize_image(image: Image.Image, max_dimension: int) -> Image.Image:
 	return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
 
+def _ensure_pyvips_shim() -> None:
+	try:
+		import pyvips  # noqa: F401
+		return
+	except Exception:
+		pass
+
+	class _VipsImage:
+		def __init__(self, array: np.ndarray) -> None:
+			self._array = array
+			self.height, self.width = array.shape[:2]
+
+		@classmethod
+		def new_from_array(cls, array: np.ndarray) -> "_VipsImage":
+			return cls(array)
+
+		def resize(self, scale: float, vscale: float | None = None) -> "_VipsImage":
+			if vscale is None:
+				vscale = scale
+			new_w = max(1, int(round(self.width * scale)))
+			new_h = max(1, int(round(self.height * vscale)))
+			image = Image.fromarray(self._array)
+			resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+			return _VipsImage(np.asarray(resized))
+
+		def numpy(self) -> np.ndarray:
+			return self._array
+
+	module = types.ModuleType("pyvips")
+	module.Image = _VipsImage
+	sys.modules["pyvips"] = module
+	logging.warning("pyvips not installed; using PIL-based shim for Moondream2.")
+
+
 def setup_ai_components(prompt: str | None = None) -> dict:
 	"""
 	Setup the Moondream2 model and tokenizer.
 	"""
 	translogging.set_verbosity_error()
+	_ensure_pyvips_shim()
 	device = _get_mps_device()
 	model = AutoModelForCausalLM.from_pretrained(
 		MODEL_ID,

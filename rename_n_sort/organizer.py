@@ -12,7 +12,7 @@ import os
 
 # local repo modules
 from .config import AppConfig
-from .llm import BaseClassLLM, normalize_reason, sanitize_filename
+from .llm import BaseClassLLM, normalize_reason, sanitize_filename, _is_guardrail_error
 from .plugins import FileMetadata, PluginRegistry, build_registry
 from .renamer import apply_move
 from .scanner import iter_files
@@ -142,10 +142,18 @@ class Organizer:
 			if self._normalize_text(metadata.summary) != self._normalize_text(pdf_text):
 				self._print_meta("raw_pdf_text_sample", pdf_text)
 		meta_payload = self._to_payload(metadata, path)
-		new_name, rename_reason = self.llm.rename_file_explain(meta_payload, path.name)
+		keep_payload = self._to_keep_payload(metadata, path)
+		try:
+			new_name, rename_reason = self.llm.rename_file_explain(meta_payload, path.name)
+		except Exception as exc:
+			if _is_guardrail_error(exc):
+				new_name = path.name
+				rename_reason = normalize_reason(f"rename failed: {exc.__class__.__name__}")
+			else:
+				raise
 		new_name = self._normalize_new_name(path.name, new_name)
 		keep_original, keep_reason = self.llm.should_keep_original_explain(
-			meta_payload, path.name, new_name
+			keep_payload, path.name, new_name
 		)
 		keep_reason = normalize_reason(keep_reason)
 		orig_stem = Path(path.name).stem
@@ -177,6 +185,7 @@ class Organizer:
 	def __init__(self, config: AppConfig, llm: BaseClassLLM | None = None) -> None:
 		self.config = config
 		self.registry: PluginRegistry = build_registry()
+		self._supported_extensions = self._collect_supported_extensions()
 		if not llm:
 			raise RuntimeError("Organizer requires a configured LLM backend.")
 		self.llm = llm
@@ -198,6 +207,11 @@ class Organizer:
 				self._print_separator()
 			first = False
 			print(f"{self._color('[FILE]', '34')} {self._display_path(path)}")
+			if not self._is_supported_extension(path):
+				ext = path.suffix.lower().lstrip(".")
+				self._print_why("error", f"Unsupported extension: .{ext}")
+				self._print_why("action", "skipping file due to unsupported extension")
+				continue
 			plan, summary = self._plan_one(path, idx)
 			title = summary.get("description", "") or ""
 			self._print_meta("text sample", title)
@@ -238,6 +252,11 @@ class Organizer:
 				self._print_separator()
 			first = False
 			print(f"{self._color('[FILE]', '34')} {self._display_path(path)}")
+			if not self._is_supported_extension(path):
+				ext = path.suffix.lower().lstrip(".")
+				self._print_why("error", f"Unsupported extension: .{ext}")
+				self._print_why("action", "skipping file due to unsupported extension")
+				continue
 			try:
 				plan, summary = self._plan_one(path, index=0)
 			except Exception as exc:
@@ -358,6 +377,23 @@ class Organizer:
 		return meta
 
 	#============================================
+	def _collect_supported_extensions(self) -> set[str]:
+		supported: set[str] = set()
+		for plugin in self.registry.plugins():
+			if plugin.name == "generic":
+				continue
+			for ext in plugin.supported_suffixes:
+				supported.add(ext.lower())
+		return supported
+
+	#============================================
+	def _is_supported_extension(self, path: Path) -> bool:
+		ext = path.suffix.lower().lstrip(".")
+		if not ext:
+			return True
+		return ext in self._supported_extensions
+
+	#============================================
 	def _to_payload(self, meta: FileMetadata, path: Path) -> dict:
 		"""
 		Convert metadata object to dictionary for LLMs.
@@ -378,6 +414,16 @@ class Organizer:
 		}
 		payload.update(meta.extra)
 		return payload
+
+	#============================================
+	def _to_keep_payload(self, meta: FileMetadata, path: Path) -> dict:
+		"""
+		Limit keep-original payload to non-content fields.
+		"""
+		return {
+			"extension": path.suffix.lstrip("."),
+			"plugin": meta.plugin_name,
+		}
 
 	#============================================
 	def _target_path(self, path: Path, suggested_name: str, category: str) -> Path:

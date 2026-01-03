@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import sys
+import time
 
 # local repo modules
 from .base import FileMetadata, FileMetadataPlugin
@@ -66,8 +67,6 @@ class ImagePlugin(FileMetadataPlugin):
 				"Moondream2 is descriptive; OCR is literal text. Prefer OCR for exact UI strings."
 			)
 		meta.summary = self._combine_summary(caption, ocr_text, path)
-		if caption:
-			print(f"\033[35m[CAPTION]\033[0m {path.name}: {caption}")
 		return meta
 
 	#============================================
@@ -132,10 +131,22 @@ class ImagePlugin(FileMetadataPlugin):
 				print("\033[35m[CAPTION]\033[0m Moondream2 initialized; captions enabled.")
 			except Exception as exc:
 				raise RuntimeError(f"Failed to initialize Moondream2: {exc}") from exc
+		start = time.monotonic()
+		print(f"\033[35m[CAPTION]\033[0m {path.name}: running Moondream2...")
 		try:
-			return moondream2.generate_caption(str(path), self._ai_components)
+			caption = moondream2.generate_caption(str(path), self._ai_components)
 		except Exception as exc:
+			duration = time.monotonic() - start
+			print(
+				f"\033[35m[CAPTION]\033[0m {path.name}: failed after {duration:.2f}s"
+			)
 			raise RuntimeError(f"Moondream2 captioning failed for {path.name}: {exc}") from exc
+		duration = time.monotonic() - start
+		short_caption = self._shorten(caption, limit=240)
+		print(
+			f"\033[35m[CAPTION]\033[0m {path.name}: finished in {duration:.2f}s - {short_caption}"
+		)
+		return caption
 
 	#============================================
 	def _read_svg_text(self, path: Path) -> str | None:

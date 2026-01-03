@@ -1,5 +1,6 @@
 accelerate
 apple-foundation-models
+beautifulsoup4
 einops
 odfpy
 openpyxl

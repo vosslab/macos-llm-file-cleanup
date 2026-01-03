@@ -8,6 +8,7 @@ from .csv_plugin import CSVPlugin
 from .document_plugin import DocumentPlugin
 from .docx_plugin import DocxPlugin
 from .generic import GenericPlugin
+from .html_plugin import HtmlPlugin
 from .image_plugin import ImagePlugin
 from .odt_plugin import OdtPlugin
 from .pdf import PDFPlugin
@@ -35,6 +36,7 @@ def build_registry() -> PluginRegistry:
 	registry = PluginRegistry()
 	registry.register(PDFPlugin())
 	registry.register(DocxPlugin())
+	registry.register(HtmlPlugin())
 	registry.register(OdtPlugin())
 	registry.register(DocumentPlugin())
 	registry.register(PresentationPlugin())
