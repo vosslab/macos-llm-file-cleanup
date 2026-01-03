@@ -128,7 +128,6 @@ class ImagePlugin(FileMetadataPlugin):
 		if not hasattr(self, "_ai_components"):
 			try:
 				self._ai_components = moondream2.setup_ai_components()
-				print("\033[35m[CAPTION]\033[0m Moondream2 initialized; captions enabled.")
 			except Exception as exc:
 				raise RuntimeError(f"Failed to initialize Moondream2: {exc}") from exc
 		start = time.monotonic()

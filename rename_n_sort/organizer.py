@@ -219,6 +219,8 @@ class Organizer:
 			keep_detail = str(plan.keep_original).lower()
 			if plan.keep_reason:
 				keep_detail = f"{keep_detail} ({plan.keep_reason})"
+			elif plan.keep_original:
+				keep_detail = f"{keep_detail} (no justification provided)"
 			self._print_why("keep_original", keep_detail)
 			plans.append(plan)
 			self._print_pair(
@@ -269,6 +271,8 @@ class Organizer:
 			keep_detail = str(plan.keep_original).lower()
 			if plan.keep_reason:
 				keep_detail = f"{keep_detail} ({plan.keep_reason})"
+			elif plan.keep_original:
+				keep_detail = f"{keep_detail} (no justification provided)"
 			self._print_why("keep_original", keep_detail)
 			self._print_pair(
 				"RENAME",

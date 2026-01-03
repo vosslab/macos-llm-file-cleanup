@@ -44,6 +44,8 @@
 - Add a PIL-based pyvips shim for Moondream2 to avoid libvips dependency.
 - Add HTML/HTM support via BeautifulSoup for content extraction.
 - Log Moondream2 caption start/finish with duration and truncate long caption output.
+- Show an explicit note when keep_original is true without a justification.
+- Print [LLM] notices for rename and keep-original prompts.
 - Render up to two PDF pages for captioning even when PDFs are longer, and refine PDF/ocr sample labels.
 - Add ODS preview extraction (sheet names + first rows) in the spreadsheet plugin.
 - Include sheet names plus first row/column preview for ODS and XLSX metadata.

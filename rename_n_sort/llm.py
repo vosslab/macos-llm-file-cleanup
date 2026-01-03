@@ -15,6 +15,7 @@ import platform
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import sys
 
 #============================================
 
@@ -80,6 +81,13 @@ def sanitize_filename(name: str) -> str:
 	if len(cleaned) > MAX_FILENAME_CHARS:
 		cleaned = cleaned[:MAX_FILENAME_CHARS]
 	return cleaned or "file"
+
+
+def _print_llm(label: str) -> None:
+	if sys.stdout.isatty():
+		print(f"\033[36m[LLM]\033[0m {label}")
+	else:
+		print(f"[LLM] {label}")
 
 
 #============================================
@@ -645,11 +653,19 @@ class AppleLLM(BaseClassLLM):
 	#============================================
 	def rename_file_explain(self, metadata: dict, current_name: str) -> tuple[str, str]:
 		prompt = self._build_rename_prompt(metadata, current_name)
+		_print_llm(
+			f"asking Apple for filename based on content "
+			f"(chars={len(prompt)}, max_tokens=200)"
+		)
 		try:
 			response_text = self._ask(prompt, max_tokens=200)
 		except Exception as exc:
 			if _is_guardrail_error(exc):
 				retry_prompt = self._build_rename_prompt_minimal(metadata, current_name)
+				_print_llm(
+					f"retrying Apple with minimal prompt for filename "
+					f"(chars={len(retry_prompt)}, max_tokens=160)"
+				)
 				response_text = self._ask(retry_prompt, max_tokens=160)
 			else:
 				raise
@@ -666,6 +682,10 @@ class AppleLLM(BaseClassLLM):
 		self, metadata: dict, current_name: str, new_name: str
 	) -> tuple[bool, str]:
 		prompt = self._build_keep_prompt(metadata, current_name, new_name)
+		_print_llm(
+			f"asking Apple if original filename should be kept "
+			f"(chars={len(prompt)}, max_tokens=120)"
+		)
 		response_text = self._ask(prompt, max_tokens=120)
 		return self._parse_keep_response_explain(response_text)
 
@@ -1005,6 +1025,10 @@ class OllamaChatLLM(BaseClassLLM):
 		LLM decision on whether original filename is meaningful.
 		"""
 		prompt = self._build_keep_prompt(metadata, current_name, new_name)
+		_print_llm(
+			f"asking Ollama if original filename should be kept "
+			f"({self.model}, chars={len(prompt)})"
+		)
 		response_text = self.ask(prompt)
 		return self._parse_keep_response(response_text)
 
@@ -1013,6 +1037,10 @@ class OllamaChatLLM(BaseClassLLM):
 		self, metadata: dict, current_name: str, new_name: str
 	) -> tuple[bool, str]:
 		prompt = self._build_keep_prompt(metadata, current_name, new_name)
+		_print_llm(
+			f"asking Ollama if original filename should be kept "
+			f"({self.model}, chars={len(prompt)})"
+		)
 		response_text = self.ask(prompt)
 		return self._parse_keep_response_explain(response_text)
 
@@ -1022,12 +1050,20 @@ class OllamaChatLLM(BaseClassLLM):
 		Rename mode: descriptive filename only.
 		"""
 		prompt = self._build_rename_prompt(metadata, current_name)
+		_print_llm(
+			f"asking Ollama for filename based on content "
+			f"({self.model}, chars={len(prompt)})"
+		)
 		response_text = self.ask(prompt)
 		return self._parse_rename_response(response_text, current_name)
 
 	#============================================
 	def rename_file_explain(self, metadata: dict, current_name: str) -> tuple[str, str]:
 		prompt = self._build_rename_prompt(metadata, current_name)
+		_print_llm(
+			f"asking Ollama for filename based on content "
+			f"({self.model}, chars={len(prompt)})"
+		)
 		response_text = self.ask(prompt)
 		return self._parse_rename_response_explain(response_text, current_name)
 
