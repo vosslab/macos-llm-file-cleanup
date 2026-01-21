@@ -1,44 +1,47 @@
-"""
-Pytest config to ensure local package imports work without installation.
-"""
+import os
 
-from __future__ import annotations
-
-import sys
-from pathlib import Path
+import pytest
 
 
-def _add_repo_root_to_path() -> None:
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SKIP_ENV = "SKIP_REPO_HYGIENE"
+
+
+#============================================
+@pytest.fixture
+def repo_root() -> str:
 	"""
-	Insert the repo root into sys.path for local imports.
+	Provide the repository root path.
 	"""
-	repo_root = Path(__file__).resolve().parent.parent
-	repo_root_str = str(repo_root)
-	if repo_root_str not in sys.path:
-		sys.path.insert(0, repo_root_str)
+	return REPO_ROOT
 
 
-_add_repo_root_to_path()
-
-from rename_n_sort.llm_parsers import KeepResult, RenameResult, SortResult  # noqa: E402
-
-
-class StubLLM:
+#============================================
+def pytest_addoption(parser) -> None:
 	"""
-	Test-only stub LLM for organizer/unit tests.
+	Add repo hygiene options.
 	"""
+	group = parser.getgroup("repo-hygiene")
+	group.addoption(
+		"--no-ascii-fix",
+		action="store_true",
+		help="Disable auto-fix for ASCII compliance tests.",
+	)
 
-	def __init__(self) -> None:
-		self.model = "stub"
 
-	def rename(self, current_name: str, metadata: dict) -> RenameResult:
-		return RenameResult(new_name="stub_name", reason="stub reason", raw_text="")
+#============================================
+@pytest.fixture
+def skip_repo_hygiene() -> bool:
+	"""
+	Check whether repo hygiene tests should be skipped.
+	"""
+	return os.environ.get(SKIP_ENV) == "1"
 
-	def stem_action(
-		self, original_stem: str, suggested_name: str, extension: str | None = None
-	) -> KeepResult:
-		return KeepResult(stem_action="drop", reason="stub keep", raw_text="")
 
-	def sort(self, files: list) -> SortResult:
-		assignments = {item.path: "Document" for item in files}
-		return SortResult(assignments=assignments, raw_text="")
+#============================================
+@pytest.fixture
+def ascii_fix_enabled(request) -> bool:
+	"""
+	Check whether ASCII compliance auto-fix is enabled.
+	"""
+	return not request.config.getoption("--no-ascii-fix")
